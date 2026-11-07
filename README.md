@@ -42,6 +42,7 @@ Your API key, bets and accounts live in each browser's local storage, never in t
 | **Basecamp** | Top-graded bets ("Summit picks"), bankroll, ROI, hit rate vs break-even, CLV, weather watch |
 | **Line Shop** | Every book side by side with the best price highlighted, plus the no-vig fair line, edge, hold, factor score and grade |
 | **Prop Lab** | Player props with real L5/L10/L20/home/away hit rates (ESPN), game-log charts vs the line, and PrizePicks/Underdog break-even math |
+| **Parlay Builder** | One **Scan** checks every game in the next 24 hours, ranks the best legs, and builds PrizePicks/Underdog slips (2–6 picks) and same-book sportsbook parlays (2–4 legs), with one leg per game so legs don't move together. Shows hit chance, payout, EV and a stake capped at one unit |
 | **Conditions** | Per-game weather (live Open-Meteo forecast at the stadium), wind direction, roof type, altitude, travel miles and time zones, rest/back-to-backs, bets vs money splits, reverse line moves, injuries, goalies, pitchers and pace |
 | **Logbook** | Log, settle and edit bets. Tracks profit, ROI, hit rate, closing line value, and ROI by book and bet type. CSV import/export |
 | **Accounts** | Connect each book manually, by CSV import, or by auto-sync through an aggregator (see below) |
@@ -63,6 +64,10 @@ The app opens in **Demo mode**. Matchups and prices are simulated, but stadium w
 2. Go to **Settings**, paste the key, and click **Save & load live odds**.
 
 Covered books: DraftKings, FanDuel, BetMGM, Caesars, theScore/ESPN Bet, Fanatics, BetRivers, Pinnacle (sharp reference), and PrizePicks/Underdog when props are on. Books are requested by name, so overseas books never show up as the "best price", and a full refresh costs about 3 credits per in-season sport. Responses are cached for 5 minutes to save credits.
+
+## Prop credits
+
+Player props cost **1 credit per stat per game**: an NBA game (points, rebounds, assists, threes, PRA) is 5, NFL 4, NHL 3. The scanner shows the cost before it runs and asks before anything over 40 credits. Scanned props are cached for 20 minutes, so reloading or switching pages is free. To scan less, pick one sport with the chips at the top. The free plan (500/month) covers about 3–4 full slates; the $30/month plan (20,000) is effectively unlimited.
 
 ## Real player stats & injuries (free, no key)
 

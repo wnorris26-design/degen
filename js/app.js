@@ -2,10 +2,11 @@ import { SPORTS, BOOKS, bookName, TEAMS } from './teams.js';
 import { analyzeGame, analyzeProp, hitRates, grade, tier, fmtAm, fmtPct, imp, kelly, toDec, DFS_SLIPS, DFS_BREAKEVEN, probToAm } from './model.js';
 import { gameFactors, factorScore, weatherTotalAdj } from './factors.js';
 import { demoSlate, rng } from './demo.js';
-import { liveSlate, quota } from './live.js';
+import { liveSlate, quota, loadGameProps, PROP_COST } from './live.js';
 import { forecast, wxLabel, compass } from './weather.js';
 import * as store from './store.js';
 import { lineChart, hbars, logBars, ring, hydrate, sparkline } from './charts.js';
+import { buildDfsSlips, buildBookParlays } from './parlay.js';
 import { propLog, injuries, teamInjuries, supportsStat, pool, headshot } from './stats.js';
 
 const { settings } = store;
@@ -17,7 +18,7 @@ const sc = (s) => `var(--${s})`;
 const time = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const dateS = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
-const state = { slate: null, loading: false, sport: localStorage.getItem('degen.sport') || 'all', opps: [], props: [], lines: { market: 'all', evOnly: true, q: '' }, propf: { sort: 'edge', venue: 'all', q: '' }, log: { status: 'all', q: '' }, homeWx: null };
+const state = { slate: null, loading: false, sport: localStorage.getItem('degen.sport') || 'all', opps: [], props: [], lines: { market: 'all', evOnly: true, q: '' }, propf: { sort: 'edge', venue: 'all', q: '', game: '' }, parlay: { book: 'all' }, slips: [], log: { status: 'all', q: '' }, homeWx: null };
 
 // ---------------- data ----------------
 async function load(force = false) {
@@ -66,7 +67,62 @@ async function enrichReal() {
   if (state.slate !== slate) return; // a refresh replaced the slate meanwhile
   state.enriching = false; state.realInfo = { injOk, logOk, total: props.length };
   compute(); state.keepScroll = true; render();
-  if (!injOk && !logOk) toast('Couldn\'t reach ESPN for real stats — showing simulated logs.');
+  if (props.length && !logOk) toast('Couldn\'t reach ESPN for real game logs — showing simulated logs.');
+}
+
+function scanPlan() {
+  const now = Date.now();
+  const games = allGames().filter((g) => new Date(g.time) - now < 24 * 36e5);
+  const todo = games.filter((g) => !g.propsLoadedAt);
+  return { games, todo, cost: todo.reduce((t, g) => t + PROP_COST[g.sport], 0) };
+}
+function scanCard() {
+  if (state.slate?.source !== 'live') return '';
+  const { games, todo, cost } = scanPlan();
+  const sc2 = state.scanning;
+  return `<div class="card scan" style="margin-bottom:18px"><div class="scan-row">
+    <div class="scan-ic">🔭</div>
+    <div class="grow"><h3 style="margin:0;font:600 18px var(--font-display)">Prop scanner</h3>
+      <div class="mut" style="font-size:12.5px">Checks every ${state.sport === 'all' ? '' : SPORTS[state.sport].label + ' '}game in the next 24 hours, ranks the best props and builds parlays. ${games.length - todo.length}/${games.length} games scanned · <b>${quota.remaining ?? '—'}</b> credits left · results stay free for 20 min.</div></div>
+    <button class="btn primary" data-act="scan" ${sc2 || !todo.length ? 'disabled' : ''}>${sc2 ? `Scanning ${sc2.done}/${sc2.total}…` : todo.length ? `Scan ${todo.length} game${todo.length > 1 ? 's' : ''} · ${cost} credits` : games.length ? 'All scanned ✓' : 'No games in 24h'}</button>
+  </div></div>`;
+}
+async function scanProps() {
+  const { todo, cost } = scanPlan();
+  if (!todo.length || state.scanning) return;
+  const left = quota.remaining != null ? +quota.remaining : null;
+  if (left != null && cost > left) return toast(`This scan needs ${cost} credits but only ${left} are left. Pick one sport with the chips at the top to scan less.`);
+  if (cost >= 40 && !confirm(`Scan ${todo.length} games for ${cost} credits${left != null ? ` (${left} left this month)` : ''}?\n\nTip: pick one sport with the chips at the top to scan fewer games.`)) return;
+  state.scanning = { done: 0, total: todo.length }; state.keepScroll = true; render();
+  let n = 0;
+  await pool(todo, 3, async (g) => {
+    const ps = await loadGameProps(g.sport, g, settings.oddsApiKey).catch(() => []);
+    const list = (state.slate.props[g.sport] ||= []);
+    const have = new Set(list.map((p) => p.id));
+    list.push(...ps.filter((p) => !have.has(p.id)));
+    n += ps.length; state.scanning.done++; state.keepScroll = true; renderTop(); const btn = document.querySelector('[data-act="scan"]'); if (btn) btn.textContent = `Scanning ${state.scanning.done}/${state.scanning.total}…`;
+  });
+  state.scanning = null;
+  compute(); state.keepScroll = true; render();
+  toast(n ? `Scanned ${todo.length} games · ${n} props · ${quota.remaining ?? '?'} credits left` : 'Books haven\'t posted props for these games yet — try closer to game time.');
+  enrichReal();
+}
+
+async function loadProps(gameId) {
+  const g = allGames().find((x) => x.id === gameId);
+  if (!g || state.loadingProps) return;
+  state.loadingProps = gameId; state.keepScroll = true; render();
+  try {
+    const ps = await loadGameProps(g.sport, g, settings.oddsApiKey);
+    const list = (state.slate.props[g.sport] ||= []);
+    const have = new Set(list.map((p) => p.id));
+    list.push(...ps.filter((p) => !have.has(p.id)));
+    state.propf.game = gameId;
+    toast(ps.length ? `Loaded ${ps.length} props for ${matchup(g)} · ${quota.remaining ?? '?'} credits left` : `Books haven't posted props for ${matchup(g)} yet — try closer to game time.`);
+  } catch (e) { toast('Couldn\'t load props: ' + e.message); }
+  state.loadingProps = null;
+  compute(); state.keepScroll = true; render();
+  enrichReal(); // pull real ESPN game logs for the new players
 }
 
 function injuryFactors(g, all) {
@@ -293,19 +349,49 @@ const views = {
     let ps = bySport(state.props);
     if (f.venue === 'dfs') ps = ps.filter((o) => o.useDfs); else if (f.venue === 'books') ps = ps.filter((o) => !o.useDfs);
     if (f.q) ps = ps.filter((o) => (o.player + o.stat + o.team).toLowerCase().includes(f.q.toLowerCase()));
+    if (f.game) ps = ps.filter((o) => o.gameId === f.game);
+    const live = state.slate?.source === 'live';
+    const loader = scanCard();
     ps.sort(f.sort === 'hit' ? (a, b) => (b.hr.l10 ?? 0) - (a.hr.l10 ?? 0) : f.sort === 'grade' ? (a, b) => b.grade - a.grade : (a, b) => b.ev - a.ev);
     return `${demoBanner()}
       <div class="card" style="margin-bottom:18px"><div class="card-h"><h3>Pick'em break-even</h3><span class="sub">what each leg must hit for PrizePicks / Underdog to be profitable</span></div>
         <div class="dfs-row">${DFS_SLIPS.map((s) => `<div class="dfs"><small>${s.app}</small><b>${fmtPct(s.breakEven)}</b><span>${s.type} · ${s.pay}×</span></div>`).join('')}</div>
         <p class="why" style="margin:12px 0 0">Pick'em apps don't show odds — they pay a fixed multiple. The trick is comparing their line to the sportsbooks' de-vigged price. When PrizePicks hangs 24.5 and the books make 26.5 a coin flip, <b>More 24.5</b> is far better than 54.6%.</p>
       </div>
+      ${loader}
       <div class="toolbar">
         <div class="seg" data-seg="venue">${[['all', 'All'], ['dfs', "Pick'em"], ['books', 'Sportsbooks']].map(([k, l]) => `<button class="${f.venue === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="seg" data-seg="sort">${[['edge', 'Edge'], ['hit', 'L10 hit rate'], ['grade', 'Grade']].map(([k, l]) => `<button class="${f.sort === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="grow"></div>
         <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input class="input" data-pf="q" placeholder="Search player…" value="${esc(f.q)}"/></div>
       </div>
-      <div class="grid g-auto">${ps.map(propCard).join('') || `<div class="card empty"><div style="font-size:34px">🧪</div><h3>No props loaded</h3><p>${settings.mode === 'live' ? 'Enable “Fetch player props” in Settings (uses extra API credits).' : 'Pick another sport.'}</p></div>`}</div>`;
+      <div class="grid g-auto">${ps.map(propCard).join('') || `<div class="card empty"><div style="font-size:34px">🧪</div><h3>No props loaded yet</h3><p>${live ? 'Hit <b>Scan</b> above — it checks every game in the next 24 hours and ranks the best props automatically.' : 'Pick another sport.'}</p></div>`}</div>`;
+  },
+
+  parlays() {
+    const props = bySport(state.props), opps = bySport(state.opps);
+    const dfs = buildDfsSlips(props);
+    const bf = state.parlay.book;
+    const bp = buildBookParlays(opps, props, bf === 'all' ? undefined : [bf]).filter((x) => x.ev > 0).slice(0, 6);
+    state.slips = [...dfs, ...bp];
+    const books = Object.keys(BOOKS).filter((k) => BOOKS[k].kind === 'book');
+    const slipCard = (x, i) => {
+      const stake = Math.min(+settings.unit || 25, settings.bankroll * kelly(x.pAll, x.odds, settings.kellyFrac)); // long shots: never more than 1 unit
+      return `<article class="card pick slip" style="--sc:${BOOKS[x.book]?.hue || 'var(--accent)'}">
+        <div class="pick-top">${bookBadge(x.book)}<span>· ${esc(x.name)}</span>${x.ev > 0 ? `<span class="tier summit" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>` : `<span class="tier" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>`}</div>
+        <ol class="legs">${x.legs.map((l) => `<li><span class="dot" style="background:${sc(l.sport)}"></span><div><b>${l.kind === 'dfs' ? `${esc(l.player)} <span class="more-less">${l.side === 'over' ? 'MORE' : 'LESS'}</span> ${l.line} ${esc(l.stat)}` : esc(l.label)}</b><small>${l.kind === 'dfs' ? `${esc(l.game.awayTeam.abbr)} @ ${esc(l.game.homeTeam.abbr)}` : esc(l.sub)}${l.hr?.l10 != null ? ` · L10 ${fmtPct(l.hr.l10, 0)}` : ''}</small></div><em>${l.kind === 'dfs' ? fmtPct(l.p, 0) : `${fmtAm(l.price)} · ${fmtPct(l.p, 0)}`}</em></li>`).join('')}</ol>
+        <div class="metrics"><div class="metric"><small>Hits</small><b>${fmtPct(x.pAll, 1)}</b></div><div class="metric"><small>Pays</small><b>${x.type === 'dfs' ? x.pay + '×' : fmtAm(x.odds)}</b></div><div class="metric"><small>Stake</small><b data-tip="Quarter-Kelly, capped at your unit size for parlays">${money(Math.max(0, stake))}</b></div></div>
+        <div class="why">${x.type === 'dfs' ? `Each pick needs ${fmtPct(x.breakEven)} to break even; these average ${fmtPct(x.legs.reduce((t, l) => t + l.p, 0) / x.legs.length)}.` : `Every leg is +EV at ${esc(bookName(x.book))}'s own price. Fair odds ${fmtAm(probToAm(x.pAll))} vs ${fmtAm(x.odds)} offered.`} Loses ${fmtPct(1 - x.pAll, 0)} of the time — size it small.</div>
+        <div class="pick-foot"><span class="mut" style="font-size:12px">One leg per game (no correlation)</span><button class="btn sm primary" data-act="logslip" data-i="${i}">+ Log ${x.type === 'dfs' ? 'slip' : 'parlay'}</button></div>
+      </article>`;
+    };
+    const hasProps = props.length > 0;
+    return `${demoBanner()}${scanCard()}
+      <div class="banner" style="background:var(--surface)">🎯 <span><b>How these are built:</b> the strongest legs on the board, one per game so they don't move together, combined into the slip sizes each app pays on. Parlays multiply your edge <i>and</i> your variance — a +30% EV 5-pick still loses most of the time.</span></div>
+      <div class="section-t"><h2>Pick'em slips</h2><p>PrizePicks & Underdog — legs where the fair probability beats the break-even</p></div>
+      <div class="picks">${dfs.length ? dfs.map((x, i) => slipCard(x, i)).join('') : `<div class="card empty"><div style="font-size:34px">🎟</div><h3>${hasProps ? 'Not enough +edge pick\'em legs' : 'No props scanned yet'}</h3><p>${hasProps ? 'Need at least 2 qualifying picks from different games. Try All sports or rescan closer to game time.' : 'Run a scan above to pull PrizePicks & Underdog lines.'}</p></div>`}</div>
+      <div class="section-t"><h2>Sportsbook parlays</h2><p>Every leg +EV at the same book</p><div class="right"><select class="input" data-pb="book" style="width:auto">${[['all', 'All books'], ...books.map((k) => [k, BOOKS[k].name])].map(([k, l]) => `<option value="${k}" ${bf === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="picks">${bp.length ? bp.map((x, i) => slipCard(x, dfs.length + i)).join('') : `<div class="card empty"><div style="font-size:34px">🧾</div><h3>No +EV parlays at ${bf === 'all' ? 'any book' : esc(bookName(bf))} right now</h3><p>A parlay needs 2+ legs from different games that are each priced better than fair at the same book.</p></div>`}</div>`;
   },
 
   conditions() {
@@ -410,9 +496,9 @@ const views = {
         <div class="form-grid">
           <div class="field full"><label>The Odds API key</label><input class="input" type="password" data-s="oddsApiKey" value="${esc(settings.oddsApiKey)}" placeholder="Paste your key from the-odds-api.com" autocomplete="off"/><small>Free tier = 500 credits/month. A full refresh ≈ 3 credits per in-season sport (props cost more). Your key is stored only in this browser.</small></div>
           <label class="switch full"><input type="checkbox" data-sb="includeSharp" ${settings.includeSharp ? 'checked' : ''}/> Include Pinnacle as the sharp reference (no extra cost)</label>
-          <label class="switch full"><input type="checkbox" data-sb="fetchProps" ${settings.fetchProps ? 'checked' : ''}/> Fetch player props + PrizePicks/Underdog lines (more credits)</label>
+          <label class="switch full"><input type="checkbox" data-sb="fetchProps" ${settings.fetchProps ? 'checked' : ''}/> Auto-load props for the next few games on every refresh (otherwise load per game in Prop Lab)</label>
           <label class="switch full"><input type="checkbox" data-sb="realStats" ${settings.realStats ? 'checked' : ''}/> Real player game logs & injury reports from ESPN (free, no key)</label>
-          <div class="field"><label>Prop games per sport</label><input class="input" type="number" min="1" max="10" data-sn="propEvents" value="${settings.propEvents}"/></div>
+          <div class="field"><label>Auto-load: games per sport</label><input class="input" type="number" min="1" max="10" data-sn="propEvents" value="${settings.propEvents}"/></div>
           <div class="field"><label>Credits remaining</label><div class="input num">${quota.remaining ?? '—'}</div></div>
         </div>
         <div class="modal-foot" style="justify-content:flex-start"><button class="btn primary" data-act="testKey">Save & load live odds</button></div>
@@ -606,7 +692,7 @@ function renderTop() {
     <a class="mode-pill ${state.slate?.source === 'live' ? 'live' : ''}" href="#/settings"><i></i>${state.slate?.source === 'live' ? 'Live odds' : 'Demo mode'}</a>`;
 }
 
-const TITLES = { home: 'Basecamp', lines: 'Line Shop', props: 'Prop Lab', conditions: 'Conditions', logbook: 'Logbook', accounts: 'Accounts', guide: 'Field Guide', settings: 'Settings' };
+const TITLES = { home: 'Basecamp', lines: 'Line Shop', props: 'Prop Lab', parlays: 'Parlay Builder', conditions: 'Conditions', logbook: 'Logbook', accounts: 'Accounts', guide: 'Field Guide', settings: 'Settings' };
 function route() { const r = (location.hash.replace(/^#\/?/, '').split('?')[0] || 'home'); return views[r] ? r : 'home'; }
 
 function render() {
@@ -653,6 +739,10 @@ document.addEventListener('click', (e) => {
   switch (t.dataset.act) {
     case 'log': { const o = state.opps.find((x) => x.id === id); if (o) betModal({ selection: `${o.selection} (${matchup(o.game)})`, sport: o.sport, book: o.bestBook, odds: o.bestPrice, market: { h2h: 'moneyline', spreads: 'spread', totals: 'total' }[o.market], fairP: o.fairP }); break; }
     case 'logprop': { const o = state.props.find((x) => x.id === id); if (o) betModal({ selection: `${o.player} ${o.side === 'over' ? 'o' : 'u'}${o.line} ${o.stat}`, sport: o.sport, book: o.useDfs ? o.a.dfs[0].book : o.a.sb.book, odds: o.useDfs ? -122 : o.a.sb.price, market: 'prop', fairP: o.p }); break; }
+    case 'loadprops': loadProps(id); break;
+    case 'scan': scanProps(); break;
+    case 'logslip': { const x = state.slips[+t.dataset.i]; if (x) betModal({ selection: x.legs.map((l) => (l.kind === 'dfs' ? `${l.player} ${l.side === 'over' ? 'MORE' : 'LESS'} ${l.line} ${l.stat}` : l.label)).join(' + '), sport: x.legs[0].sport, book: x.book, odds: x.odds, market: 'parlay', fairP: x.pAll }); break; }
+    case 'propgame': state.propf.game = id; state.keepScroll = true; render(); break;
     case 'newbet': betModal(); break;
     case 'editbet': betModal({}, id); break;
     case 'clearSample': store.clearSample(); toast('Sample bets cleared — your logbook is all yours.'); render(); break;
@@ -670,6 +760,7 @@ document.addEventListener('change', (e) => {
   if (t.dataset.sn) { settings[t.dataset.sn] = +t.value; store.saveSettings(); }
   if (t.dataset.sb) { settings[t.dataset.sb] = t.checked; store.saveSettings(); if (t.dataset.sb === 'rain') rain(); if (t.dataset.sb === 'realStats') load(); }
   if (t.dataset.sport) { settings.sports[t.dataset.sport] = t.checked; store.saveSettings(); renderTop(); }
+  if (t.dataset.pb) { state.parlay.book = t.value; state.keepScroll = true; return render(); }
   if (t.dataset.f === 'evOnly') { state.lines.evOnly = t.checked; state.keepScroll = true; render(); }
 });
 let qTimer;
