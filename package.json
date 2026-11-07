@@ -1,0 +1,12 @@
+{
+  "name": "cascadia-line-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PNW-themed sports betting dashboard: line shopping, +EV, prop hit rates, weather & situational factors, bet logbook.",
+  "scripts": {
+    "start": "node server.js",
+    "sync-proxy": "node server/sharpsports-proxy.js"
+  },
+  "license": "UNLICENSED",
+  "type": "module"
+}
