@@ -89,7 +89,7 @@ const round5 = (a) => (Math.abs(a) < 100 ? a : Math.round(a / 5) * 5);
 function bookPrice(r, p, book, vig) {
   // noise in log-odds space so favorites and dogs move realistically; ~5% of quotes are "stale" (slow to move)
   const lg = Math.log(p / (1 - p));
-  const sd = book === 'pinnacle' ? 0.025 : r() < 0.012 ? 0.16 : 0.045;
+  const sd = book === 'pinnacle' ? 0.025 : r() < 0.012 ? 0.09 : 0.045;
   const pb = 1 / (1 + Math.exp(-(lg + r.n(0, sd))));
   const v = book === 'pinnacle' ? 0.022 : Math.max(0.03, vig + r.n(0, 0.006));
   const cap = (x) => Math.min(0.985, Math.max(0.012, x));
@@ -147,7 +147,7 @@ async function makeGames(sport, now, seed) {
     const homeTix = Math.round(Math.min(85, Math.max(18, 50 + mktMu / c.msd * 40 + r.n(0, 14))));
     const homeMoney = Math.round(Math.min(92, Math.max(10, homeTix + r.n(0, 14))));
     const moveStep = c.puck ? 0 : r.pick([-1, -0.5, 0, 0, 0.5, 1, 1.5]);
-    const injuries = r() < 0.35 ? [{ team: r() < 0.5 ? 'home' : 'away', player: r.pick(INJ[sport]), status: r.pick(['Out', 'Doubtful', 'Questionable']), note: 'Simulated injury report — in live mode, check the official report before betting.', w: 0.5 + r() * 0.6 }] : [];
+    const injuries = r() < 0.35 ? [{ team: r() < 0.5 ? 'home' : 'away', player: r.pick(INJ[sport]), status: r.pick(['Out', 'Doubtful', 'Questionable']), note: 'Simulated injury (ESPN injury feed unavailable) — check the official report before betting.', w: 0.5 + r() * 0.6 }] : [];
     const g = {
       id: `${sport}-${i}-${H.abbr}-${A.abbr}`, sport, demo: true, time,
       home: H.name, away: A.name, homeTeam: H, awayTeam: A, books, weather,
@@ -192,11 +192,14 @@ function makeProps(sport, games, seed) {
         books[bk] = { line, over: o, under: u };
       }
       const dfsLine = () => {
-        const shift = small ? 0 : Math.round(r.n(0, sd * 0.07) * 2) / 2;
+        const shift = small ? 0 : Math.round(r.n(0, sd * 0.07));
         return Math.max(0.5, line + shift);
       };
-      books.prizepicks = { line: dfsLine() };
-      if (r() < 0.8) books.underdog = { line: dfsLine() };
+      // pick'em apps only post near-coin-flip lines; lopsided low-count markets (e.g. 1.5 hits at +200) aren't offered as standard picks
+      if (!(small && Math.abs(pOver - 0.5) > 0.12)) {
+        books.prizepicks = { line: dfsLine() };
+        if (r() < 0.8) books.underdog = { line: dfsLine() };
+      }
       const log = [];
       for (let k = 19; k >= 0; k--) {
         const hm = r() < 0.5;

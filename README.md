@@ -18,7 +18,7 @@ Open http://localhost:5173. (ES modules won't load from `file://`, so you need t
 |---|---|
 | **Basecamp** | Top-graded bets ("Summit picks"), bankroll, ROI, hit rate vs break-even, CLV, weather watch |
 | **Line Shop** | Every book side by side with the best price highlighted, plus the no-vig fair line, edge, hold, factor score and grade |
-| **Prop Lab** | Player props with L5/L10/L20/home/away hit rates, game-log charts vs the line, and PrizePicks/Underdog break-even math |
+| **Prop Lab** | Player props with real L5/L10/L20/home/away hit rates (ESPN), game-log charts vs the line, and PrizePicks/Underdog break-even math |
 | **Conditions** | Per-game weather (live Open-Meteo forecast at the stadium), wind direction, roof type, altitude, travel miles and time zones, rest/back-to-backs, bets vs money splits, reverse line moves, injuries, goalies, pitchers and pace |
 | **Logbook** | Log, settle and edit bets. Tracks profit, ROI, hit rate, closing line value, and ROI by book and bet type. CSV import/export |
 | **Accounts** | Connect each book manually, by CSV import, or by auto-sync through an aggregator (see below) |
@@ -34,17 +34,28 @@ Open http://localhost:5173. (ES modules won't load from `file://`, so you need t
 
 ## Live odds
 
-The app opens in **Demo mode**. The slate, prices and game logs are simulated, but stadium weather is real. To switch to real lines:
+The app opens in **Demo mode**. Matchups and prices are simulated, but stadium weather, player game logs and injury reports are real. To switch to real lines:
 
 1. Get a free key at [the-odds-api.com](https://the-odds-api.com) (500 credits/month).
 2. Go to **Settings**, paste the key, and click **Save & load live odds**.
 
 Covered books: DraftKings, FanDuel, BetMGM, Caesars, BetRivers, Pinnacle (eu region), plus ESPN/theScore and Fanatics (us2), and PrizePicks/Underdog (us_dfs, when props are on). Responses are cached for 5 minutes to save credits.
 
-**Limitations in live mode:**
-- Player game logs and hit rates need a stats feed, so they are only populated in demo mode.
-- Bet/money splits, injuries, goalies and starting pitchers aren't in the odds feed and are skipped.
-- Travel assumes the away team is coming from home.
+## Real player stats & injuries (free, no key)
+
+Player game logs and injury reports come from **ESPN's public site API**. It's free, needs no key, and allows browser calls, so it works in both demo and live mode:
+
+| Data | Endpoint |
+|---|---|
+| Player lookup | `site.web.api.espn.com/apis/common/v3/search?query=NAME&type=player` |
+| Game logs (last 20, pulls last season too if needed) | `site.web.api.espn.com/apis/common/v3/sports/{sport}/{league}/athletes/{id}/gamelog` |
+| Injury reports | `site.api.espn.com/apis/site/v2/sports/{sport}/{league}/injuries` |
+
+These drive the L5/L10/L20/home/away hit rates, the game-log charts, player headshots, and the injury factor. Out and doubtful players count the most, NFL QBs and NHL goalies are weighted up, and long-term injured-reserve absences are mostly ignored because the line already reflects them. Results are cached in your browser (game logs for 3 hours, injuries for 30 minutes). You can turn this off in **Settings**.
+
+ESPN's API is undocumented and unofficial. It's widely used, but it can change without notice. If a call fails, the app falls back to simulated data and keeps working.
+
+**Still not covered in live mode:** bet/money splits, confirmed goalies and starting pitchers. Travel assumes the away team is coming from home.
 
 ## Connecting sportsbook accounts
 

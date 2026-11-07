@@ -83,7 +83,10 @@ export function gameFactors(g) {
     }
   }
   for (const inj of g.injuries || []) {
-    add('inj', '🩹', `Injury · ${inj.team === 'home' ? H.abbr : A.abbr}`, `${inj.player} (${inj.status})`, inj.note, { m: 'side', s: inj.team === 'home' ? 'away' : 'home', w: inj.w });
+    const lean = inj.w >= 0.15 ? { m: 'side', s: inj.team === 'home' ? 'away' : 'home', w: inj.w } : null;
+    if (inj.real) add('inj', '🩹', `Injuries · ${inj.team === 'home' ? H.abbr : A.abbr}`, `${inj.top[0].player} (${inj.top[0].status})${inj.count > 1 ? ` +${inj.count - 1}` : ''}`,
+      `Live ESPN injury report — ${inj.top.map((i) => `${i.player}${i.pos ? ' ' + i.pos : ''} (${i.status})`).join(', ')}${inj.count > inj.top.length ? `, and ${inj.count - inj.top.length} more` : ''}. ${inj.top[0].note || ''} Long-term absences are discounted because the line already reflects them.`, lean);
+    else add('inj', '🩹', `Injury · ${inj.team === 'home' ? H.abbr : A.abbr}`, `${inj.player} (${inj.status})`, inj.note, lean);
   }
   if (g.goalie) add('goalie', '🥅', 'Goalie', g.goalie.text, g.goalie.note, g.goalie.lean);
   if (g.pace) add('pace', '⚡', 'Pace', g.pace.text, g.pace.note, g.pace.lean);

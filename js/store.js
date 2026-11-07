@@ -11,7 +11,7 @@ export const DEFAULT_SETTINGS = {
   mode: 'demo', oddsApiKey: '', includeSharp: true, includeUs2: false, fetchProps: false, propEvents: 3,
   sports: { nfl: true, nba: true, mlb: true, nhl: true },
   books: Object.keys(BOOKS), includeBookFilter: false,
-  bankroll: 1000, unit: 25, kellyFrac: 0.25, minEv: 0.01, theme: 'auto', rain: true, firstRun: true,
+  bankroll: 1000, unit: 25, kellyFrac: 0.25, minEv: 0.01, theme: 'auto', rain: true, firstRun: true, realStats: true,
 };
 export const settings = { ...DEFAULT_SETTINGS, ...read(K.settings, {}) };
 settings.sports = { ...DEFAULT_SETTINGS.sports, ...(settings.sports || {}) };

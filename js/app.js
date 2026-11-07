@@ -6,6 +6,7 @@ import { liveSlate, quota } from './live.js';
 import { forecast, wxLabel, compass } from './weather.js';
 import * as store from './store.js';
 import { lineChart, hbars, logBars, ring, hydrate, sparkline } from './charts.js';
+import { propLog, injuries, teamInjuries, supportsStat, pool, headshot } from './stats.js';
 
 const { settings } = store;
 const $ = (s, r = document) => r.querySelector(s);
@@ -36,6 +37,56 @@ async function load(force = false) {
   compute();
   state.loading = false; $('#refreshBtn').classList.remove('spin');
   render();
+  enrichReal();
+}
+
+// Real injury reports + player game logs from ESPN (free, no key). Runs after first paint.
+async function enrichReal() {
+  if (!settings.realStats || !state.slate) return;
+  const slate = state.slate;
+  state.enriching = true; renderTop();
+  let injOk = 0, logOk = 0;
+  await Promise.all(Object.entries(slate.games).filter(([, gs]) => gs.length).map(async ([s, gs]) => {
+    const all = await injuries(s).catch(() => null);
+    if (!all) return;
+    injOk++;
+    for (const g of gs) g.injuries = injuryFactors(g, all);
+  }));
+  const props = Object.values(slate.props).flat().filter((p) => supportsStat(p.sport, p.stat));
+  await pool(props, 6, async (p) => {
+    const r = await propLog(p.sport, p.player, p.stat);
+    if (!r || r.log.length < 3) return;
+    p.log = r.log; p.espnId = r.espnId; p.realLog = true; logOk++;
+    if (!p.team && r.team && p.game) {
+      const m = (t) => t.abbr === r.team || t.abbr.startsWith(r.team) || r.team.startsWith(t.abbr.slice(0, 2));
+      const home = m(p.game.homeTeam) && !m(p.game.awayTeam) ? true : m(p.game.awayTeam) && !m(p.game.homeTeam) ? false : null;
+      if (home != null) { p.home = home; p.team = (home ? p.game.homeTeam : p.game.awayTeam).abbr; p.opp = (home ? p.game.awayTeam : p.game.homeTeam).abbr; }
+    }
+  });
+  if (state.slate !== slate) return; // a refresh replaced the slate meanwhile
+  state.enriching = false; state.realInfo = { injOk, logOk, total: props.length };
+  compute(); state.keepScroll = true; render();
+  if (!injOk && !logOk) toast('Couldn\'t reach ESPN for real stats — showing simulated logs.');
+}
+
+function injuryFactors(g, all) {
+  const out = [];
+  for (const side of ['home', 'away']) {
+    const team = side === 'home' ? g.homeTeam : g.awayTeam;
+    const list = teamInjuries(all, team.name).filter((i) => !/^active$|probable/i.test(i.status || '')).map((i) => {
+      const s = (i.status || '').toLowerCase();
+      let x = /^out|suspen/.test(s) ? 0.35 : /doubt/.test(s) ? 0.25 : /quest|day-to-day/.test(s) ? 0.08 : 0.05;
+      if (g.sport === 'nfl' && i.pos === 'QB') x *= 3;
+      if (g.sport === 'nhl' && i.pos === 'G') x *= 1.6;
+      const away = i.returnDate ? new Date(i.returnDate) - Date.now() : 0;
+      if (away > 21 * 864e5 || /injured reserve|60-day|season|physically unable/.test(s + ' ' + (i.note || '').toLowerCase())) x *= 0.08; // long-term: already priced in
+      return { ...i, x };
+    }).sort((a, b) => b.x - a.x);
+    if (!list.length) continue;
+    const w = Math.min(1.5, list.reduce((t, i) => t + i.x, 0) * 0.5);
+    out.push({ team: side, real: true, count: list.length, top: list.slice(0, 4), w: Math.round(w * 10) / 10 });
+  }
+  return out;
 }
 
 function compute() {
@@ -157,7 +208,10 @@ const views = {
   home() {
     const opps = bySport(state.opps).filter((o) => o.ev >= settings.minEv);
     const props = bySport(state.props).filter((o) => o.ev > 0);
-    const top = [...opps, ...props].sort((a, b) => b.grade - a.grade || b.ev - a.ev).slice(0, 6);
+    // game lines and props are scored on different scales, so interleave the best of each
+    const rank = (a, b) => b.grade - a.grade || b.ev - a.ev;
+    const tl = [...opps].sort(rank), tp = [...props].sort(rank), top = [];
+    while (top.length < 6 && (tl.length || tp.length)) { if (tl.length) top.push(tl.shift()); if (tp.length && top.length < 6) top.push(tp.shift()); }
     const st = store.stats(store.bets);
     const s30 = store.stats(store.bets.filter((b) => Date.now() - new Date(b.placed) < 30 * 864e5));
     const nBooks = new Set(allGames().flatMap((g) => Object.keys(g.books))).size;
@@ -358,6 +412,7 @@ const views = {
           <label class="switch full"><input type="checkbox" data-sb="includeSharp" ${settings.includeSharp ? 'checked' : ''}/> Include Pinnacle (eu region) as the sharp reference</label>
           <label class="switch full"><input type="checkbox" data-sb="includeUs2" ${settings.includeUs2 ? 'checked' : ''}/> Include us2 books (ESPN/theScore, Fanatics…)</label>
           <label class="switch full"><input type="checkbox" data-sb="fetchProps" ${settings.fetchProps ? 'checked' : ''}/> Fetch player props + PrizePicks/Underdog lines (more credits)</label>
+          <label class="switch full"><input type="checkbox" data-sb="realStats" ${settings.realStats ? 'checked' : ''}/> Real player game logs & injury reports from ESPN (free, no key)</label>
           <div class="field"><label>Prop games per sport</label><input class="input" type="number" min="1" max="10" data-sn="propEvents" value="${settings.propEvents}"/></div>
           <div class="field"><label>Credits remaining</label><div class="input num">${quota.remaining ?? '—'}</div></div>
         </div>
@@ -398,7 +453,7 @@ function propCard(o) {
   const hrc = (v) => (v == null ? '' : v >= 0.6 ? 'hot' : v <= 0.4 ? 'cold' : '');
   const books = Object.entries(o.books).filter(([k]) => BOOKS[k]?.kind !== 'dfs');
   return `<article class="card prop" style="--sc:${sc(o.sport)}">
-    <div class="prop-h"><div class="avatar" style="background:${sc(o.sport)}">${esc(initials)}</div>
+    <div class="prop-h"><div class="avatar" style="background:${sc(o.sport)}">${esc(initials)}${o.espnId ? `<img src="${headshot(o.sport, o.espnId)}" alt="" loading="lazy" onerror="this.remove()"/>` : ''}</div>
       <div><h3>${esc(o.player)}</h3><div class="sub">${o.team ? `${esc(o.team)} ${o.home ? 'vs' : '@'} ${esc(o.opp)}` : esc(o.opp)} · ${time(o.time)}</div></div>
       <div class="prop-line"><small>${esc(o.stat)}</small><b>${a.bookLine}</b></div></div>
     <div class="fchips">${tierBadge(o.grade)}<span class="fchip">Proj ${a.mu.toFixed(1)}</span><span class="fchip">Over ${fmtPct(a.pOver, 0)} fair</span>${books.slice(0, 4).map(([k, v]) => `<span class="fchip" data-tip="${esc(bookName(k))} ${v.line}: o${fmtAm(v.over)} / u${fmtAm(v.under)}">${esc(BOOKS[k]?.short || k)} ${fmtAm(v.over)}</span>`).join('')}</div>
@@ -409,7 +464,7 @@ function propCard(o) {
     <div class="hr-row">${[['L5', o.hr.l5], ['L10', o.hr.l10], ['L20', o.hr.l20], ['Home', o.hr.home], ['Away', o.hr.away]].map(([l, v]) => `<div class="hr ${hrc(v)}"><small>${l}</small><b>${fmtPct(v, 0)}</b></div>`).join('')}</div>
     ${logBars(o.log || [], o.line, o.side)}
     <details class="why"><summary>Why ${o.side === 'over' ? (o.useDfs ? 'More' : 'Over') : (o.useDfs ? 'Less' : 'Under')} ${o.line}</summary>${whyProp(o)}</details>
-    <div class="pick-foot"><span class="mut" style="font-size:12px">${o.live ? 'Live prices' : 'Simulated prices & logs'}</span><button class="btn sm primary" data-act="logprop" data-id="${esc(o.id)}">+ Log pick</button></div>
+    <div class="pick-foot"><span class="mut" style="font-size:12px">${o.realLog ? '<span class="real-dot"></span>Real ESPN game log' : 'Simulated game log'} · ${o.live ? 'live prices' : 'simulated prices'}</span><button class="btn sm primary" data-act="logprop" data-id="${esc(o.id)}">+ Log pick</button></div>
   </article>`;
 }
 
@@ -446,7 +501,7 @@ function condCard(g, focus) {
 function demoBanner() {
   if (settings.mode === 'live' && state.slate?.source === 'live') return '';
   const mlb = state.sport === 'mlb' || state.sport === 'all';
-  return `<div class="banner">🧭 <span><b>Demo slate.</b> Matchups, prices and game logs are simulated so you can explore everything${state.slate?.games.nfl?.some((g) => g.weather?.live) ? ' — stadium weather is <b>live</b>' : ''}. ${mlb ? 'MLB is in the offseason, so its slate is a sandbox. ' : ''}Add a free Odds API key for real DraftKings, FanDuel, BetMGM, Caesars, PrizePicks & Underdog lines.</span><a class="btn sm" href="#/settings">Go live</a></div>`;
+  return `<div class="banner">🧭 <span><b>Demo slate.</b> Matchups and prices are simulated so you can explore everything${state.slate?.games.nfl?.some((g) => g.weather?.live) ? ' — stadium weather is <b>live</b>' : ''}${state.realInfo?.logOk ? `; player game logs and injury reports are <b>real</b> (ESPN)` : ''}. ${mlb ? 'MLB is in the offseason, so its slate is a sandbox. ' : ''}Add a free Odds API key for real DraftKings, FanDuel, BetMGM, Caesars, PrizePicks & Underdog lines.</span><a class="btn sm" href="#/settings">Go live</a></div>`;
 }
 
 // ---------------- modals ----------------
@@ -546,7 +601,7 @@ function renderTop() {
   const chips = [['all', 'All', null], ...Object.entries(SPORTS).filter(([k]) => settings.sports[k]).map(([k, s]) => [k, s.label, k])];
   $('#sportChips').innerHTML = chips.map(([k, l, c]) => `<button class="chip ${state.sport === k ? 'on' : ''}" data-sport-chip="${k}" role="tab" aria-selected="${state.sport === k}">${c ? `<span class="dot" style="background:${sc(c)}"></span>` : ''}${l}</button>`).join('');
   const src = state.slate ? (state.slate.source === 'live' ? 'Live odds' : 'Demo slate') : 'Loading…';
-  $('#topSub').innerHTML = `<span>${state.loading ? 'Refreshing lines…' : src}${state.slate ? ' · updated ' + new Date(state.slate.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</span>${state.homeWx ? `<span>· Seattle ${state.homeWx.t}°F ${state.homeWx.g}</span>` : ''}`;
+  $('#topSub').innerHTML = `<span>${state.loading ? 'Refreshing lines…' : src}${state.enriching ? ' · pulling real stats from ESPN…' : state.realInfo?.logOk ? ` · ${state.realInfo.logOk} real game logs` : ''}${state.slate ? ' · updated ' + new Date(state.slate.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</span>${state.homeWx ? `<span>· Seattle ${state.homeWx.t}°F ${state.homeWx.g}</span>` : ''}`;
   const st = store.stats(store.bets);
   $('#sideFoot').innerHTML = `<div class="bank-card"><small>Bankroll</small><b>${money(settings.bankroll + st.profit)}</b><span class="${st.profit >= 0 ? 'pos' : 'neg'}">${money(st.profit, true)} · ROI ${pctS(st.roi)}</span></div>
     <a class="mode-pill ${state.slate?.source === 'live' ? 'live' : ''}" href="#/settings"><i></i>${state.slate?.source === 'live' ? 'Live odds' : 'Demo mode'}</a>`;
@@ -614,7 +669,7 @@ document.addEventListener('change', (e) => {
   if (t.matches('[data-act="status"]')) { store.updateBet(t.dataset.id, { status: t.value }); state.keepScroll = true; return render(); }
   if (t.dataset.s) { settings[t.dataset.s] = t.value.trim(); store.saveSettings(); }
   if (t.dataset.sn) { settings[t.dataset.sn] = +t.value; store.saveSettings(); }
-  if (t.dataset.sb) { settings[t.dataset.sb] = t.checked; store.saveSettings(); if (t.dataset.sb === 'rain') rain(); }
+  if (t.dataset.sb) { settings[t.dataset.sb] = t.checked; store.saveSettings(); if (t.dataset.sb === 'rain') rain(); if (t.dataset.sb === 'realStats') load(); }
   if (t.dataset.sport) { settings.sports[t.dataset.sport] = t.checked; store.saveSettings(); renderTop(); }
   if (t.dataset.f === 'evOnly') { state.lines.evOnly = t.checked; state.keepScroll = true; render(); }
 });
