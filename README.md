@@ -4,13 +4,25 @@ A Pacific Northwest–themed betting dashboard for **NFL, NBA, MLB and NHL**. It
 
 No build step and no dependencies. It's plain HTML/CSS/ES modules.
 
-## Run it
+## Run it on your laptop
+
+**Windows (easiest):**
+1. Install **Node.js LTS** from https://nodejs.org (accept the defaults). This is a one-time step.
+2. Download this repo: on GitHub click **Code → Download ZIP**, then right-click the ZIP and choose **Extract All…**.
+3. Open the extracted folder and double-click **`Start Line Lab.bat`**. Your browser opens to http://localhost:5173.
+4. Keep the black window open while you use the site. Close it to stop.
+
+If Windows shows "Windows protected your PC", click **More info → Run anyway**. That warning appears for any script downloaded from the internet.
+
+**Mac:** double-click **`Start Line Lab.command`** instead (the first time, right-click it and choose **Open**).
+
+**Any OS, from a terminal:**
 
 ```bash
-npm start            # or: node server.js
+npm start
 ```
 
-Open http://localhost:5173. (ES modules won't load from `file://`, so you need the tiny server. GitHub Pages or any static host also works.)
+The server only listens on your own machine (127.0.0.1), so nobody else on your Wi-Fi can reach it. Your bets, accounts and API key are saved in that browser. Use the same browser each time, and back up with **Logbook → Export CSV**.
 
 ## Use it on your phone (GitHub Pages)
 
