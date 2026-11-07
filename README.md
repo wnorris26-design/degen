@@ -12,6 +12,17 @@ npm start            # or: node server.js
 
 Open http://localhost:5173. (ES modules won't load from `file://`, so you need the tiny server. GitHub Pages or any static host also works.)
 
+## Use it on your phone (GitHub Pages)
+
+It's a static site, so GitHub Pages hosts it for free:
+
+1. Repo **Settings → General → Danger Zone → Change visibility → Public** (free accounts need a public repo for Pages).
+2. **Settings → Pages → Build and deployment → Source: Deploy from a branch**, choose the branch and `/ (root)`, then **Save**.
+3. After about a minute it's live at `https://<your-username>.github.io/degen/`.
+4. On your phone, open the link and use **Share → Add to Home Screen** (iPhone) or **⋮ → Install app** (Android) to get a full-screen app icon.
+
+Your API key, bets and accounts live in each browser's local storage, never in the repo. So on your phone, paste the key into Settings once and use **Import CSV** to bring over the logbook you exported from your computer.
+
 ## What's inside
 
 | Page | What it does |
