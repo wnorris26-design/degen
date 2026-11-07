@@ -97,8 +97,11 @@ export function analyzeGame(game) {
           if (pairs.length < 2) continue;
           const cons = consensus(pairs);
           if (!cons) continue;
-          const best = pairs.reduce((m, x) => (toDec(x.a) > toDec(m.a) ? x : m));
-          const worst = pairs.reduce((m, x) => (toDec(x.a) < toDec(m.a) ? x : m));
+          // Pinnacle informs the fair price but isn't bettable from the US, so it can't be the "best book"
+          const bettable = pairs.filter((x) => BOOKS[x.book]?.kind !== 'sharp');
+          if (!bettable.length) continue;
+          const best = bettable.reduce((m, x) => (toDec(x.a) > toDec(m.a) ? x : m));
+          const worst = bettable.reduce((m, x) => (toDec(x.a) < toDec(m.a) ? x : m));
           const point = +pointStr;
           const e = ev(cons.p, best.a);
           const pin = pairs.find((x) => x.book === 'pinnacle');
@@ -154,8 +157,10 @@ export function analyzeProp(prop) {
     const po = 1 - normCdf((line - mu) / sd);
     return dir === 'over' ? po : 1 - po;
   };
-  const sbBestOver = main[1].reduce((m, x) => (toDec(x.a) > toDec(m.a) ? x : m));
-  const sbBestUnder = main[1].reduce((m, x) => (toDec(x.b) > toDec(m.b) ? x : m));
+  const bettable = main[1].filter((x) => BOOKS[x.book]?.kind !== 'sharp');
+  const pool = bettable.length ? bettable : main[1];
+  const sbBestOver = pool.reduce((m, x) => (toDec(x.a) > toDec(m.a) ? x : m));
+  const sbBestUnder = pool.reduce((m, x) => (toDec(x.b) > toDec(m.b) ? x : m));
   const sbSide = ev(pOver, sbBestOver.a) >= ev(1 - pOver, sbBestUnder.b) ? 'over' : 'under';
   const sb = sbSide === 'over'
     ? { side: 'over', book: sbBestOver.book, price: sbBestOver.a, p: pOver, ev: ev(pOver, sbBestOver.a) }

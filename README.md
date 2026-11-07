@@ -39,7 +39,7 @@ The app opens in **Demo mode**. Matchups and prices are simulated, but stadium w
 1. Get a free key at [the-odds-api.com](https://the-odds-api.com) (500 credits/month).
 2. Go to **Settings**, paste the key, and click **Save & load live odds**.
 
-Covered books: DraftKings, FanDuel, BetMGM, Caesars, BetRivers, Pinnacle (eu region), plus ESPN/theScore and Fanatics (us2), and PrizePicks/Underdog (us_dfs, when props are on). Responses are cached for 5 minutes to save credits.
+Covered books: DraftKings, FanDuel, BetMGM, Caesars, theScore/ESPN Bet, Fanatics, BetRivers, Pinnacle (sharp reference), and PrizePicks/Underdog when props are on. Books are requested by name, so overseas books never show up as the "best price", and a full refresh costs about 3 credits per in-season sport. Responses are cached for 5 minutes to save credits.
 
 ## Real player stats & injuries (free, no key)
 

@@ -1,7 +1,8 @@
 // Live odds via The Odds API (the-odds-api.com). Covers DraftKings, FanDuel, BetMGM, Caesars,
 // theScore/ESPN Bet, Fanatics, BetRivers, Pinnacle (eu region) and PrizePicks/Underdog (us_dfs region).
-// Free tier: 500 credits/month. Cost per call ≈ markets × regions, so we cache aggressively.
-import { SPORTS, findTeam } from './teams.js';
+// Free tier: 500 credits/month. Cost per call ≈ markets × regions; naming up to 10 bookmakers counts as ONE region,
+// so we request our books by name (cheaper, and no overseas books you can't bet at). Cached for 5 minutes.
+import { SPORTS, BOOKS, findTeam } from './teams.js';
 import { forecast } from './weather.js';
 
 const BASE = 'https://api.the-odds-api.com/v4';
@@ -14,6 +15,7 @@ const PROP_MARKETS = {
   mlb: { batter_hits: 'Hits', batter_total_bases: 'Total Bases', pitcher_strikeouts: 'Strikeouts' },
   nhl: { player_shots_on_goal: 'Shots on Goal', player_points: 'Points', player_total_saves: 'Saves' },
 };
+const PROP_BOOKS = Object.keys(BOOKS).join(','); // 8 sportsbooks + PrizePicks + Underdog = 10 → 1 region of cost
 const PROP_SD = { 'Points': 7, Rebounds: 3.2, Assists: 2.6, '3-Pointers': 1.6, 'Pts+Reb+Ast': 8, 'Pass Yards': 55, 'Rush Yards': 25, 'Rec Yards': 28, Receptions: 2.2, Hits: 0.9, 'Total Bases': 1.5, Strikeouts: 2.3, 'Shots on Goal': 1.7, Saves: 5.5 };
 
 async function get(path, params, key) {
@@ -53,13 +55,13 @@ function mapEvent(sport, ev) {
 
 export async function liveSlate(settings) {
   const key = settings.oddsApiKey;
-  const regions = ['us', settings.includeSharp ? 'eu' : null, settings.includeUs2 ? 'us2' : null].filter(Boolean).join(',');
+  const bookmakers = Object.keys(BOOKS).filter((k) => BOOKS[k].kind === 'book' || (k === 'pinnacle' && settings.includeSharp)).join(',');
   const games = {}, props = {}, errors = [];
   await Promise.all(Object.entries(SPORTS).map(async ([s, meta]) => {
     games[s] = []; props[s] = [];
     if (!settings.sports[s]) return;
     try {
-      const data = await get(`/sports/${meta.key}/odds`, { regions, markets: 'h2h,spreads,totals' }, key);
+      const data = await get(`/sports/${meta.key}/odds`, { bookmakers, markets: 'h2h,spreads,totals' }, key);
       const horizon = Date.now() + 7 * 864e5;
       games[s] = data.filter((e) => new Date(e.commence_time) < horizon).slice(0, 16).map((e) => mapEvent(s, e));
       if (settings.includeBookFilter) {
@@ -77,7 +79,7 @@ async function liveProps(sport, games, key) {
   const out = [];
   const markets = Object.keys(PROP_MARKETS[sport]).join(',');
   for (const g of games) {
-    const ev = await get(`/sports/${SPORTS[sport].key}/events/${g.id}/odds`, { regions: 'us,us_dfs', markets }, key).catch(() => null);
+    const ev = await get(`/sports/${SPORTS[sport].key}/events/${g.id}/odds`, { bookmakers: PROP_BOOKS, markets }, key).catch(() => null);
     if (!ev) continue;
     const by = {};
     for (const b of ev.bookmakers || []) for (const m of b.markets) for (const oc of m.outcomes) {

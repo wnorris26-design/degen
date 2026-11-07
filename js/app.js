@@ -408,9 +408,8 @@ const views = {
       <div class="card"><div class="card-h"><h3>Data source</h3></div>
         <div class="seg" data-set="mode" style="margin-bottom:14px"><button class="${!live ? 'on' : ''}" data-v="demo">Demo slate</button><button class="${live ? 'on' : ''}" data-v="live">Live odds</button></div>
         <div class="form-grid">
-          <div class="field full"><label>The Odds API key</label><input class="input" type="password" data-s="oddsApiKey" value="${esc(settings.oddsApiKey)}" placeholder="Paste your key from the-odds-api.com" autocomplete="off"/><small>Free tier = 500 credits/month. Each refresh ≈ 3 credits per sport per region. Your key is stored only in this browser.</small></div>
-          <label class="switch full"><input type="checkbox" data-sb="includeSharp" ${settings.includeSharp ? 'checked' : ''}/> Include Pinnacle (eu region) as the sharp reference</label>
-          <label class="switch full"><input type="checkbox" data-sb="includeUs2" ${settings.includeUs2 ? 'checked' : ''}/> Include us2 books (ESPN/theScore, Fanatics…)</label>
+          <div class="field full"><label>The Odds API key</label><input class="input" type="password" data-s="oddsApiKey" value="${esc(settings.oddsApiKey)}" placeholder="Paste your key from the-odds-api.com" autocomplete="off"/><small>Free tier = 500 credits/month. A full refresh ≈ 3 credits per in-season sport (props cost more). Your key is stored only in this browser.</small></div>
+          <label class="switch full"><input type="checkbox" data-sb="includeSharp" ${settings.includeSharp ? 'checked' : ''}/> Include Pinnacle as the sharp reference (no extra cost)</label>
           <label class="switch full"><input type="checkbox" data-sb="fetchProps" ${settings.fetchProps ? 'checked' : ''}/> Fetch player props + PrizePicks/Underdog lines (more credits)</label>
           <label class="switch full"><input type="checkbox" data-sb="realStats" ${settings.realStats ? 'checked' : ''}/> Real player game logs & injury reports from ESPN (free, no key)</label>
           <div class="field"><label>Prop games per sport</label><input class="input" type="number" min="1" max="10" data-sn="propEvents" value="${settings.propEvents}"/></div>
