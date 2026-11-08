@@ -289,6 +289,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .legs li small { color: var(--muted); font-size: 11.5px; }
 .legs li em { font-style: normal; font: 600 12px var(--font-num); color: var(--ink-2); white-space: nowrap; }
 
+.vs-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 0; background: linear-gradient(170deg, color-mix(in oklab, var(--accent) 7%, var(--surface)), var(--surface)); display: grid; gap: 8px; }
+.vs-box:not(:has(.logbars)) { padding-bottom: 10px; }
+.vs-h { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.vs-h span { color: var(--ink-2); font-family: var(--font-num); font-size: 12px; }
+.vs-box .logbars { height: 96px; }
+
 /* ---------- conditions ---------- */
 .cond { display: grid; grid-template-columns: 220px 1fr; gap: 18px; }
 .wx-panel { align-self: start; border-radius: 14px; padding: 16px; background: linear-gradient(170deg, color-mix(in oklab, var(--glacier) 18%, var(--surface-2)), var(--surface-2)); display: flex; flex-direction: column; gap: 10px; }

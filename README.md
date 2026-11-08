@@ -41,7 +41,7 @@ Your API key, bets and accounts live in each browser's local storage, never in t
 |---|---|
 | **Basecamp** | Top-graded bets ("Summit picks"), bankroll, ROI, hit rate vs break-even, CLV, weather watch |
 | **Line Shop** | Every book side by side with the best price highlighted, plus the no-vig fair line, edge, hold, factor score and grade |
-| **Prop Lab** | Player props with real L5/L10/L20/home/away hit rates (ESPN), game-log charts vs the line, and PrizePicks/Underdog break-even math |
+| **Prop Lab** | Player props with real L5/L10/L20/home/away hit rates and **career head-to-head vs tonight's opponent** (ESPN), game-log charts vs the line, and PrizePicks/Underdog break-even math |
 | **Parlay Builder** | One **Scan** checks every game in the next 24 hours, ranks the best legs, and builds PrizePicks/Underdog slips (2–6 picks) and same-book sportsbook parlays (2–4 legs), with one leg per game so legs don't move together. Shows hit chance, payout, EV and a stake capped at one unit |
 | **Conditions** | Per-game weather (live Open-Meteo forecast at the stadium), wind direction, roof type, altitude, travel miles and time zones, rest/back-to-backs, bets vs money splits, reverse line moves, injuries, goalies, pitchers and pace |
 | **Logbook** | Log, settle and edit bets. Tracks profit, ROI, hit rate, closing line value, and ROI by book and bet type. CSV import/export |
@@ -78,6 +78,8 @@ Player game logs and injury reports come from **ESPN's public site API**. It's f
 | Player lookup | `site.web.api.espn.com/apis/common/v3/search?query=NAME&type=player` |
 | Game logs (last 20, pulls last season too if needed) | `site.web.api.espn.com/apis/common/v3/sports/{sport}/{league}/athletes/{id}/gamelog` |
 | Injury reports | `site.api.espn.com/apis/site/v2/sports/{sport}/{league}/injuries` |
+
+**Career head-to-head:** for every prop, the app pulls the player's full career game logs (up to 12 seasons) and keeps every game against tonight's opponent. Teams are matched by ESPN team ID, so renames and moves still count (Oakland → Sacramento A's, Indians → Guardians). Each card shows the career hit rate at today's line, the last 3 seasons, the last 5 meetings and a bar chart. That history feeds the factor score, weighted toward recent seasons and discounted for small samples. It's never mixed into the price-based edge. The results are cached for 12 hours.
 
 These drive the L5/L10/L20/home/away hit rates, the game-log charts, player headshots, and the injury factor. Out and doubtful players count the most, NFL QBs and NHL goalies are weighted up, and long-term injured-reserve absences are mostly ignored because the line already reflects them. Results are cached in your browser (game logs for 3 hours, injuries for 30 minutes). You can turn this off in **Settings**.
 

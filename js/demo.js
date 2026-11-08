@@ -206,7 +206,7 @@ function makeProps(sport, games, seed) {
         const v = small ? r.pois(Math.max(0.1, trueMu * (hm ? 1.03 : 0.97))) : Math.max(0, Math.round(r.n(trueMu * (hm ? 1.03 : 0.97), sd)));
         log.push({ d: k, opp: r.pick(TEAMS[sport]).abbr, home: hm, v });
       }
-      props.push({ id: `${g.id}|${player}|${stat}`, sport, player, team: abbr, teamObj: home ? g.homeTeam : g.awayTeam, opp: opp.abbr, home, gameId: g.id, time: g.time, stat, sd, books, log, game: g, demo: true });
+      props.push({ id: `${g.id}|${player}|${stat}`, sport, player, team: abbr, teamObj: home ? g.homeTeam : g.awayTeam, oppTeam: opp, opp: opp.abbr, home, gameId: g.id, time: g.time, stat, sd, books, log, game: g, demo: true });
     }
   }
   return props;

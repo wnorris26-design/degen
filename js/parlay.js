@@ -11,7 +11,7 @@ export function dfsLegs(props) {
   const best = {};
   for (const o of props) for (const d of o.a?.dfs || []) {
     if (d.edge <= 0) continue;
-    const leg = { kind: 'dfs', app: d.book, player: o.player, stat: o.stat, side: d.side, line: d.line, p: d.p, gameId: o.gameId, sport: o.sport, game: o.game, hr: o.hr, id: `${o.id}|${d.book}` };
+    const leg = { kind: 'dfs', app: d.book, player: o.player, stat: o.stat, side: d.side, line: d.line, p: d.p, gameId: o.gameId, sport: o.sport, game: o.game, hr: o.hr, vs: o.side === d.side && o.line === d.line ? o.vs : null, id: `${o.id}|${d.book}` };
     const k = d.book + '|' + o.player;
     if (!best[k] || leg.p > best[k].p) best[k] = leg;
   }
@@ -33,7 +33,7 @@ export function bookLegs(opps, props, book) {
     for (const [side, price, p] of [['over', b.over, o.a.pOver], ['under', b.under, 1 - o.a.pOver]]) {
       if (price == null) continue;
       const e = evOf(p, price);
-      if (e > 0) legs.push({ kind: 'prop', book, label: `${o.player} ${side === 'over' ? 'o' : 'u'}${b.line} ${o.stat}`, sub: o.team ? `${o.team} ${o.home ? 'vs' : '@'} ${o.opp}` : o.opp, price, p, ev: e, gameId: o.gameId, sport: o.sport, hr: o.hr, id: o.id + '|' + side + '|' + book });
+      if (e > 0) legs.push({ kind: 'prop', book, label: `${o.player} ${side === 'over' ? 'o' : 'u'}${b.line} ${o.stat}`, sub: o.team ? `${o.team} ${o.home ? 'vs' : '@'} ${o.opp}` : o.opp, price, p, ev: e, gameId: o.gameId, sport: o.sport, hr: o.hr, vs: o.side === side && o.line === b.line ? o.vs : null, id: o.id + '|' + side + '|' + book });
     }
   }
   return legs.sort((a, b) => b.ev - a.ev);

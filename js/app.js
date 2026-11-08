@@ -7,7 +7,7 @@ import { forecast, wxLabel, compass } from './weather.js';
 import * as store from './store.js';
 import { lineChart, hbars, logBars, ring, hydrate, sparkline } from './charts.js';
 import { buildDfsSlips, buildBookParlays } from './parlay.js';
-import { propLog, injuries, teamInjuries, supportsStat, pool, headshot } from './stats.js';
+import { h2hLog, propLog, injuries, teamInjuries, supportsStat, pool, headshot } from './stats.js';
 
 const { settings } = store;
 const $ = (s, r = document) => r.querySelector(s);
@@ -61,12 +61,20 @@ async function enrichReal() {
     if (!p.team && r.team && p.game) {
       const m = (t) => t.abbr === r.team || t.abbr.startsWith(r.team) || r.team.startsWith(t.abbr.slice(0, 2));
       const home = m(p.game.homeTeam) && !m(p.game.awayTeam) ? true : m(p.game.awayTeam) && !m(p.game.homeTeam) ? false : null;
-      if (home != null) { p.home = home; p.team = (home ? p.game.homeTeam : p.game.awayTeam).abbr; p.opp = (home ? p.game.awayTeam : p.game.homeTeam).abbr; }
+      if (home != null) { p.home = home; p.team = (home ? p.game.homeTeam : p.game.awayTeam).abbr; p.opp = (home ? p.game.awayTeam : p.game.homeTeam).abbr; p.oppTeam = home ? p.game.awayTeam : p.game.homeTeam; }
     }
   });
   if (state.slate !== slate) return; // a refresh replaced the slate meanwhile
   state.enriching = false; state.realInfo = { injOk, logOk, total: props.length };
   compute(); state.keepScroll = true; render();
+  // career head-to-head vs tonight's opponent (slower: one request per career season, cached)
+  const withOpp = props.filter((p) => p.realLog && p.oppTeam && !p.h2h);
+  if (withOpp.length) {
+    state.enriching = 'h2h'; renderTop();
+    await pool(withOpp, 3, async (p) => { const h = await h2hLog(p.sport, p.player, p.stat, p.oppTeam).catch(() => null); if (h) p.h2h = h; });
+    if (state.slate !== slate) return;
+    state.enriching = false; compute(); state.keepScroll = true; render();
+  }
   if (props.length && !logOk) toast('Couldn\'t reach ESPN for real game logs — showing simulated logs.');
 }
 
@@ -145,6 +153,13 @@ function injuryFactors(g, all) {
   return out;
 }
 
+function h2hSummary(log, line, side) {
+  const hit = (g) => (side === 'over' ? g.v > line : g.v < line);
+  const sum = (arr) => ({ n: arr.length, hits: arr.filter(hit).length, rate: arr.length ? arr.filter(hit).length / arr.length : null, avg: arr.length ? arr.reduce((t, g) => t + g.v, 0) / arr.length : null });
+  const cutoff = Date.now() - 3 * 365 * 864e5;
+  return { ...sum(log), recent: sum(log.filter((g) => new Date(g.date) >= cutoff)), first: log[0]?.date?.slice(0, 4), last5: log.slice(-5), log };
+}
+
 function compute() {
   const opps = [], props = [];
   for (const [sport, games] of Object.entries(state.slate.games)) {
@@ -169,6 +184,9 @@ function compute() {
         hr: hitRates(p.log || [], line, side), nBooks: a.nBooks, factorScore: 0 };
       // hit-rate agreement nudges the factor score for props
       if (o.hr.l10 != null) o.factorScore = Math.round(((o.hr.l10 - 0.5) * 4 + ((o.hr.l20 ?? 0.5) - 0.5) * 2) * 10) / 10;
+      o.vs = p.h2h ? h2hSummary(p.h2h, line, side) : null;
+      // matchup history nudges the factor score, weighted toward recent seasons and shrunk for small samples
+      if (o.vs?.n) { const r = o.vs.recent.n >= 3 ? o.vs.recent : o.vs; o.factorScore = Math.round((o.factorScore + (r.rate - 0.5) * 3 * (r.n / (r.n + 6))) * 10) / 10; }
       o.grade = grade(o);
       props.push(o);
     }
@@ -197,6 +215,8 @@ function whyProp(o) {
     const d = a.dfs[0];
     b.push(`${bookName(d.book)} posts <b>${d.line}</b> — ${d.line < a.bookLine ? 'lower' : d.line > a.bookLine ? 'higher' : 'the same as'} the books. ${d.side === 'over' ? 'More' : 'Less'} hits <b>${fmtPct(d.p)}</b> vs the <b>${fmtPct(DFS_BREAKEVEN)}</b> per-pick break-even of a 5/6-pick slip.`);
   } else b.push(`Best sportsbook price: <b>${bookName(a.sb.book)} ${a.sb.side} ${fmtAm(a.sb.price)}</b> (${pctS(a.sb.ev)} EV).`);
+  if (o.vs?.n) b.push(`Career vs <b>${esc(o.opp)}</b>: ${o.side === 'over' ? 'over' : 'under'} ${o.line} in <b>${o.vs.hits} of ${o.vs.n}</b> games since ${o.vs.first} (avg ${o.vs.avg.toFixed(1)})${o.vs.recent.n ? `; last 3 seasons <b>${o.vs.recent.hits} of ${o.vs.recent.n}</b>` : ''}.`);
+  else if (o.h2h && !o.h2h.length) b.push(`No career games against ${esc(o.opp)} yet.`);
   if (o.hr.l10 != null) b.push(`${o.side === 'over' ? 'Over' : 'Under'} ${o.line} has hit <b>${fmtPct(o.hr.l10, 0)}</b> of the last 10 and ${fmtPct(o.hr.l20, 0)} of the last 20 (avg ${o.hr.avg.toFixed(1)}).`);
   return `<ul>${b.map((x) => `<li>${x}</li>`).join('')}</ul>`;
 }
@@ -379,7 +399,7 @@ const views = {
       const stake = Math.min(+settings.unit || 25, settings.bankroll * kelly(x.pAll, x.odds, settings.kellyFrac)); // long shots: never more than 1 unit
       return `<article class="card pick slip" style="--sc:${BOOKS[x.book]?.hue || 'var(--accent)'}">
         <div class="pick-top">${bookBadge(x.book)}<span>· ${esc(x.name)}</span>${x.ev > 0 ? `<span class="tier summit" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>` : `<span class="tier" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>`}</div>
-        <ol class="legs">${x.legs.map((l) => `<li><span class="dot" style="background:${sc(l.sport)}"></span><div><b>${l.kind === 'dfs' ? `${esc(l.player)} <span class="more-less">${l.side === 'over' ? 'MORE' : 'LESS'}</span> ${l.line} ${esc(l.stat)}` : esc(l.label)}</b><small>${l.kind === 'dfs' ? `${esc(l.game.awayTeam.abbr)} @ ${esc(l.game.homeTeam.abbr)}` : esc(l.sub)}${l.hr?.l10 != null ? ` · L10 ${fmtPct(l.hr.l10, 0)}` : ''}</small></div><em>${l.kind === 'dfs' ? fmtPct(l.p, 0) : `${fmtAm(l.price)} · ${fmtPct(l.p, 0)}`}</em></li>`).join('')}</ol>
+        <ol class="legs">${x.legs.map((l) => `<li><span class="dot" style="background:${sc(l.sport)}"></span><div><b>${l.kind === 'dfs' ? `${esc(l.player)} <span class="more-less">${l.side === 'over' ? 'MORE' : 'LESS'}</span> ${l.line} ${esc(l.stat)}` : esc(l.label)}</b><small>${l.kind === 'dfs' ? `${esc(l.game.awayTeam.abbr)} @ ${esc(l.game.homeTeam.abbr)}` : esc(l.sub)}${l.hr?.l10 != null ? ` · L10 ${fmtPct(l.hr.l10, 0)}` : ''}${l.vs?.n ? ` · vs opp ${l.vs.hits}/${l.vs.n}` : ''}</small></div><em>${l.kind === 'dfs' ? fmtPct(l.p, 0) : `${fmtAm(l.price)} · ${fmtPct(l.p, 0)}`}</em></li>`).join('')}</ol>
         <div class="metrics"><div class="metric"><small>Hits</small><b>${fmtPct(x.pAll, 1)}</b></div><div class="metric"><small>Pays</small><b>${x.type === 'dfs' ? x.pay + '×' : fmtAm(x.odds)}</b></div><div class="metric"><small>Stake</small><b data-tip="Quarter-Kelly, capped at your unit size for parlays">${money(Math.max(0, stake))}</b></div></div>
         <div class="why">${x.type === 'dfs' ? `Each pick needs ${fmtPct(x.breakEven)} to break even; these average ${fmtPct(x.legs.reduce((t, l) => t + l.p, 0) / x.legs.length)}.` : `Every leg is +EV at ${esc(bookName(x.book))}'s own price. Fair odds ${fmtAm(probToAm(x.pAll))} vs ${fmtAm(x.odds)} offered.`} Loses ${fmtPct(1 - x.pAll, 0)} of the time — size it small.</div>
         <div class="pick-foot"><span class="mut" style="font-size:12px">One leg per game (no correlation)</span><button class="btn sm primary" data-act="logslip" data-i="${i}">+ Log ${x.type === 'dfs' ? 'slip' : 'parlay'}</button></div>
@@ -546,6 +566,9 @@ function propCard(o) {
       <div class="dfs ${!o.useDfs && a.sb.ev > 0 ? 'good' : ''}"><small>Best book</small><b>${a.sb.side === 'over' ? 'o' : 'u'}${a.bookLine} ${fmtAm(a.sb.price)}</b><span>${esc(bookName(a.sb.book))} · ${pctS(a.sb.ev)} EV</span></div>
       ${a.dfs.map((d) => `<div class="dfs ${d.edge > 0 ? 'good' : ''}"><small>${esc(bookName(d.book))}</small><b><span class="more-less">${d.side === 'over' ? 'MORE' : 'LESS'}</span> ${d.line}</b><span>${fmtPct(d.p)} · ${d.edge > 0 ? '+' : ''}${(d.edge * 100).toFixed(1)} vs B/E</span></div>`).join('')}
     </div>
+    ${o.vs ? `<div class="vs-box"><div class="vs-h"><b>vs ${esc(o.opp)} · career</b><span>${o.vs.n ? `${o.vs.hits}/${o.vs.n} ${o.side === 'over' ? 'over' : 'under'} · avg ${o.vs.avg.toFixed(1)} · since ${o.vs.first}` : 'never faced them'}</span></div>
+      ${o.vs.n ? `<div class="hr-row" style="grid-template-columns:repeat(3,1fr)">${[['Career', o.vs.rate, o.vs.n], ['Last 3 seasons', o.vs.recent.rate, o.vs.recent.n], ['Last 5 vs them', o.vs.last5.filter((g) => (o.side === 'over' ? g.v > o.line : g.v < o.line)).length / (o.vs.last5.length || 1), o.vs.last5.length]].map(([l, v, n]) => `<div class="hr ${hrc(n ? v : null)}"><small>${l}</small><b>${n ? fmtPct(v, 0) : '—'}</b></div>`).join('')}</div>
+      ${logBars(o.vs.log.map((g) => ({ ...g, opp: "'" + g.date.slice(2, 4) })), o.line, o.side, { n: 8 })}` : ''}</div>` : ''}
     <div class="hr-row">${[['L5', o.hr.l5], ['L10', o.hr.l10], ['L20', o.hr.l20], ['Home', o.hr.home], ['Away', o.hr.away]].map(([l, v]) => `<div class="hr ${hrc(v)}"><small>${l}</small><b>${fmtPct(v, 0)}</b></div>`).join('')}</div>
     ${logBars(o.log || [], o.line, o.side)}
     <details class="why"><summary>Why ${o.side === 'over' ? (o.useDfs ? 'More' : 'Over') : (o.useDfs ? 'Less' : 'Under')} ${o.line}</summary>${whyProp(o)}</details>
@@ -686,7 +709,7 @@ function renderTop() {
   const chips = [['all', 'All', null], ...Object.entries(SPORTS).filter(([k]) => settings.sports[k]).map(([k, s]) => [k, s.label, k])];
   $('#sportChips').innerHTML = chips.map(([k, l, c]) => `<button class="chip ${state.sport === k ? 'on' : ''}" data-sport-chip="${k}" role="tab" aria-selected="${state.sport === k}">${c ? `<span class="dot" style="background:${sc(c)}"></span>` : ''}${l}</button>`).join('');
   const src = state.slate ? (state.slate.source === 'live' ? 'Live odds' : 'Demo slate') : 'Loading…';
-  $('#topSub').innerHTML = `<span>${state.loading ? 'Refreshing lines…' : src}${state.enriching ? ' · pulling real stats from ESPN…' : state.realInfo?.logOk ? ` · ${state.realInfo.logOk} real game logs` : ''}${state.slate ? ' · updated ' + new Date(state.slate.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</span>${state.homeWx ? `<span>· Seattle ${state.homeWx.t}°F ${state.homeWx.g}</span>` : ''}`;
+  $('#topSub').innerHTML = `<span>${state.loading ? 'Refreshing lines…' : src}${state.enriching === 'h2h' ? ' · pulling career matchups…' : state.enriching ? ' · pulling real stats from ESPN…' : state.realInfo?.logOk ? ` · ${state.realInfo.logOk} real game logs` : ''}${state.slate ? ' · updated ' + new Date(state.slate.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</span>${state.homeWx ? `<span>· Seattle ${state.homeWx.t}°F ${state.homeWx.g}</span>` : ''}`;
   const st = store.stats(store.bets);
   $('#sideFoot').innerHTML = `<div class="bank-card"><small>Bankroll</small><b>${money(settings.bankroll + st.profit)}</b><span class="${st.profit >= 0 ? 'pos' : 'neg'}">${money(st.profit, true)} · ROI ${pctS(st.roi)}</span></div>
     <a class="mode-pill ${state.slate?.source === 'live' ? 'live' : ''}" href="#/settings"><i></i>${state.slate?.source === 'live' ? 'Live odds' : 'Demo mode'}</a>`;

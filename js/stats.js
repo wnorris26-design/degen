@@ -9,6 +9,7 @@ export const ESPN_PATH = { nba: 'basketball/nba', nfl: 'football/nfl', nhl: 'hoc
 
 const ID_KEY = 'degen.espn.ids', LOG_KEY = 'degen.espn.logs.v1';
 const LOG_TTL = 3 * 36e5; // game logs: refresh every 3 hours
+const seasonsOf = {}; // career seasons per athlete (from the gamelog's season filter)
 const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch { return {}; } };
 const ids = load(ID_KEY);
 const logs = load(LOG_KEY);
@@ -66,7 +67,7 @@ function parseLog(j) {
         if (!meta) continue;
         const row = Object.fromEntries((j.names || []).map((nm, i) => [nm, e.stats[i]]));
         // MLB pitchers and NFL non-passers share keys with hitters/QBs; "innings" marks a pitcher row
-        out.push({ id: e.eventId, date: meta.gameDate, opp: meta.opponent?.abbreviation || '?', home: meta.atVs !== '@', result: meta.gameResult, team: meta.team?.abbreviation, row, pitcher: 'innings' in row });
+        out.push({ id: e.eventId, date: meta.gameDate, opp: meta.opponent?.abbreviation || '?', oppId: meta.opponent?.id || null, oppName: meta.opponent?.displayName || '', home: meta.atVs !== '@', result: meta.gameResult, team: meta.team?.abbreviation, row, pitcher: 'innings' in row });
       }
     }
   }
@@ -77,16 +78,18 @@ function parseLog(j) {
 export async function rawLog(sport, athleteId, want = 20) {
   const key = sport + ':' + athleteId;
   const c = logs[key];
-  if (c && Date.now() - c.t < LOG_TTL) return c.g;
+  if (c && Date.now() - c.t < LOG_TTL && c.seasons) { seasonsOf[key] = c.seasons; return c.g; }
   const base = `${WEB}/sports/${ESPN_PATH[sport]}/athletes/${athleteId}/gamelog`;
-  let games = parseLog(await getJson(base));
+  const first = await getJson(base);
+  seasonsOf[key] = (first.filters || []).find((f) => f.name === 'season')?.options?.map((o) => +o.value).filter(Boolean) || [];
+  let games = parseLog(first);
   if (games.length < want) {
     const prev = await getJson(`${base}?season=${currentSeason(sport) - 1}`).catch(() => null);
     if (prev) games = games.concat(parseLog(prev));
   }
   const seen = new Set();
   games = games.filter((g) => !seen.has(g.id) && seen.add(g.id)).sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-30);
-  logs[key] = { t: Date.now(), g: games };
+  logs[key] = { t: Date.now(), g: games, seasons: seasonsOf[key] };
   persist(LOG_KEY, logs);
   return games;
 }
@@ -102,6 +105,47 @@ export async function propLog(sport, player, stat) {
   const rows = sport === 'mlb' && stat === 'Strikeouts' ? games.filter((g) => g.pitcher) : games;
   const log = rows.map((g, i) => ({ d: rows.length - 1 - i, date: g.date, opp: g.opp, home: g.home, v: fn(g.row) })).slice(-20);
   return { espnId: id, log, team: games[games.length - 1]?.team, last: games[games.length - 1]?.date };
+}
+
+// ---------------- career head-to-head ----------------
+// Every regular/postseason game a player has played against one franchise, across their whole career.
+// Past seasons never change, so we cache only the matching games (small) for 12 hours.
+const H2H_KEY = 'degen.espn.h2h.v1', H2H_TTL = 12 * 36e5;
+const h2hCache = load(H2H_KEY);
+for (const k in h2hCache) if (Date.now() - h2hCache[k].t > H2H_TTL) delete h2hCache[k]; // prune stale entries
+const careerSeasonCache = {}; // in-memory: parsed seasons for this page session
+
+async function careerGames(sport, id) {
+  const key = sport + ':' + id;
+  await rawLog(sport, id); // also learns the season list
+  const seasons = (seasonsOf[key] || []).slice(0, 12);
+  const all = [];
+  await pool(seasons, 4, async (yr) => {
+    const ck = key + ':' + yr;
+    careerSeasonCache[ck] ||= getJson(`${WEB}/sports/${ESPN_PATH[sport]}/athletes/${id}/gamelog?season=${yr}`).then(parseLog).catch(() => []);
+    all.push(...(await careerSeasonCache[ck]));
+  });
+  const seen = new Set();
+  return all.filter((g) => !seen.has(g.id) && seen.add(g.id)).sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+/** Career games vs one opponent for a prop stat. oppTeam = {name, abbr, espn}. Oldest → newest. */
+export async function h2hLog(sport, player, stat, oppTeam) {
+  const fn = STAT[sport]?.[stat];
+  if (!fn || !oppTeam) return null;
+  const id = await findAthlete(sport, player);
+  if (!id) return null;
+  const ck = `${sport}:${id}:${oppTeam.espn || norm(oppTeam.name)}`;
+  let games = h2hCache[ck] && Date.now() - h2hCache[ck].t < H2H_TTL ? h2hCache[ck].g : null;
+  if (!games) {
+    const all = await careerGames(sport, id);
+    games = all.filter((g) => (oppTeam.espn ? g.oppId === String(oppTeam.espn) : norm(g.oppName) === norm(oppTeam.name)))
+      .map(({ date, home, result, row, pitcher, opp }) => ({ date, home, result, row, pitcher, opp }));
+    h2hCache[ck] = { t: Date.now(), g: games };
+    persist(H2H_KEY, h2hCache);
+  }
+  const rows = sport === 'mlb' && stat === 'Strikeouts' ? games.filter((g) => g.pitcher) : games;
+  return rows.map((g) => ({ date: g.date, home: g.home, opp: g.opp, v: fn(g.row) }));
 }
 
 // ---------------- injuries ----------------
