@@ -67,6 +67,21 @@ The app opens in **Demo mode**. Matchups and prices are simulated, but stadium w
 
 Covered books: DraftKings, FanDuel, BetMGM, Caesars, theScore/ESPN Bet, Fanatics, BetRivers, Pinnacle (sharp reference), and PrizePicks/Underdog when props are on. Books are requested by name, so overseas books never show up as the "best price", and a full refresh costs about 3 credits per in-season sport. Responses are cached for 5 minutes to save credits.
 
+## NFL scheme matchups (free, nflverse)
+
+`data/nfl-matchups.json` is built from [nflverse](https://github.com/nflverse/nflverse-data) open data (Next Gen Stats coverage tags plus play-by-play, CC-BY 4.0) by `scripts/build-nfl-matchups.mjs`:
+
+- **Each defense:** man vs zone %, top coverage shells (Cover 1/2/3…), blitz rate, pressure rate, 8-man box rate, plus yards and EPA allowed this season.
+- **Each player:** QBs' passing and scramble yards per dropback vs man and zone, receivers' catches and yards vs man and zone, and RBs' yards per carry against light, normal and stacked boxes.
+
+Every NFL prop card gets a **Scheme** box, e.g. *"MIN: 82% zone (1st most) · Josh Allen gains 7.2 yds/dropback vs zone, 6.0 vs man → +8 yds vs his norm"*. That adjustment feeds the factor score. Splits are shrunk toward the player's overall rate so small samples don't swing it. The comparison is against the coverage mix the player normally sees, so a big split vs zone only matters when tonight's defense plays more or less zone than usual.
+
+Coverage tags are only published after a season ends, so scheme tendencies use last season; yards allowed are current. A GitHub Action (`.github/workflows/nfl-data.yml`) rebuilds the file every Tuesday, or run it yourself:
+
+```bash
+node scripts/build-nfl-matchups.mjs
+```
+
 ## Prop credits
 
 Player props cost **1 credit per stat per game**: an NBA game (points, rebounds, assists, threes, PRA) is 5, NFL 4, NHL 3. The scanner shows the cost before it runs and asks before anything over 40 credits. Scanned props are cached for 20 minutes, so reloading or switching pages is free. To scan less, pick one sport with the chips at the top. The free plan (500/month) covers about 3–4 full slates; the $30/month plan (20,000) is effectively unlimited.
