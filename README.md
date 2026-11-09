@@ -82,6 +82,20 @@ Coverage tags are only published after a season ends, so scheme tendencies use l
 node scripts/build-nfl-matchups.mjs
 ```
 
+## NBA pace & defense vs position (free, ESPN box scores)
+
+`data/nba-matchups.json` is rebuilt every morning by `scripts/build-nba-matchups.mjs` from every completed game's ESPN box score:
+
+- **Team pace:** possessions per 48, where possessions = FGA − OREB + TOV + 0.44·FTA. Also offensive and defensive rating (points per 100 possessions).
+- **Defense vs position:** points, rebounds, assists and 3PM allowed per game to guards, forwards and centers, with ranks.
+
+Every NBA prop card gets a **⚡ Pace & matchup** box, e.g. *"DEN 100.5 vs CHI 107.3 → 104.9 projected (+4.3% possessions) · CHI allows 13.7 reb/g to centers (5th most), +17% vs average after pace → +2.7 vs his average"*.
+
+How it's calculated:
+- **Game pace** = home pace × away pace ÷ league pace. The player's boost is measured against his own team's pace.
+- **Defense vs position** is pace-adjusted so pace isn't counted twice, and shrunk toward league average early in the season.
+- **NBA game factors** use the real projected pace, with an over/under lean when it's 2+ possessions from average.
+
 ## Prop credits
 
 Player props cost **1 credit per stat per game**: an NBA game (points, rebounds, assists, threes, PRA) is 5, NFL 4, NHL 3. The scanner shows the cost before it runs and asks before anything over 40 credits. Scanned props are cached for 20 minutes, so reloading or switching pages is free. To scan less, pick one sport with the chips at the top. The free plan (500/month) covers about 3–4 full slates; the $30/month plan (20,000) is effectively unlimited.

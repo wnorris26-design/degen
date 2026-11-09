@@ -6,6 +6,7 @@ import { liveSlate, quota, loadGameProps, PROP_COST, loadGameLongshots, LONG_COS
 import { forecast, wxLabel, compass } from './weather.js';
 import * as store from './store.js';
 import { lineChart, hbars, logBars, ring, hydrate, sparkline } from './charts.js';
+import { loadNba, nbaAdjust, paceFactor, nbaData } from './nba.js';
 import { loadScheme, schemeAdjust, defenseLine, schemeData } from './scheme.js';
 import { buildDfsSlips, buildBookParlays, buildLongParlays } from './parlay.js';
 import { h2hLog, propLog, injuries, teamInjuries, supportsStat, pool, headshot } from './stats.js';
@@ -208,6 +209,7 @@ function compute() {
   const opps = [], props = [];
   for (const [sport, games] of Object.entries(state.slate.games)) {
     for (const g of games) {
+      if (sport === 'nba' && nbaData()) { const pf = paceFactor(g); if (pf) g.pace = pf; } // real pace replaces the simulated one
       g.factors = gameFactors(g);
       if (sport === 'nfl' && schemeData()) for (const [side, t] of [['home', g.homeTeam], ['away', g.awayTeam]]) {
         const line = defenseLine(t.abbr);
@@ -234,6 +236,8 @@ function compute() {
       if (o.hr.l10 != null) o.factorScore = Math.round(((o.hr.l10 - 0.5) * 4 + ((o.hr.l20 ?? 0.5) - 0.5) * 2) * 10) / 10;
       o.vs = p.h2h ? h2hSummary(p.h2h, line, side) : null;
       o.scheme = schemeAdjust(o);
+      o.nba = nbaAdjust(o);
+      if (o.nba) o.factorScore = Math.round((o.factorScore + Math.max(-1.5, Math.min(1.5, (o.nba.delta / Math.max(1, line)) * 12)) * (side === 'over' ? 1 : -1)) * 10) / 10;
       if (o.scheme) o.factorScore = Math.round((o.factorScore + Math.max(-1.5, Math.min(1.5, (o.scheme.delta / Math.max(1, line)) * 12)) * (side === 'over' ? 1 : -1)) * 10) / 10;
       // matchup history nudges the factor score, weighted toward recent seasons and shrunk for small samples
       if (o.vs?.n) { const r = o.vs.recent.n >= 3 ? o.vs.recent : o.vs; o.factorScore = Math.round((o.factorScore + (r.rate - 0.5) * 3 * (r.n / (r.n + 6))) * 10) / 10; }
@@ -272,6 +276,7 @@ function whyProp(o) {
     const d = a.dfs[0];
     b.push(`${bookName(d.book)} posts <b>${d.line}</b> — ${d.line < a.bookLine ? 'lower' : d.line > a.bookLine ? 'higher' : 'the same as'} the books. ${d.side === 'over' ? 'More' : 'Less'} hits <b>${fmtPct(d.p)}</b> vs the <b>${fmtPct(DFS_BREAKEVEN)}</b> per-pick break-even of a 5/6-pick slip.`);
   } else b.push(`Best sportsbook price: <b>${bookName(a.sb.book)} ${a.sb.side} ${fmtAm(a.sb.price)}</b> (${pctS(a.sb.ev)} EV).`);
+  if (o.nba) b.push(`⚡ ${esc(o.nba.paceLine)}.${o.nba.dvpLine ? ' ' + esc(o.nba.dvpLine) + '.' : ''} → <b>${esc(o.nba.headline)}</b>.`);
   if (o.scheme) b.push(`🛡 Scheme: ${esc(o.scheme.defLine)}. ${esc(o.scheme.detail)} → <b>${esc(o.scheme.headline)}</b> against this defense.`);
   if (o.vs?.n) b.push(`Career vs <b>${esc(o.opp)}</b>: ${o.side === 'over' ? 'over' : 'under'} ${o.line} in <b>${o.vs.hits} of ${o.vs.n}</b> games since ${o.vs.first} (avg ${o.vs.avg.toFixed(1)})${o.vs.recent.n ? `; last 3 seasons <b>${o.vs.recent.hits} of ${o.vs.recent.n}</b>` : ''}.`);
   else if (o.h2h && !o.h2h.length) b.push(`No career games against ${esc(o.opp)} yet.`);
@@ -697,6 +702,8 @@ function propCard(o) {
     ${o.vs ? `<div class="vs-box"><div class="vs-h"><b>vs ${esc(o.opp)} · career</b><span>${o.vs.n ? `${o.vs.hits}/${o.vs.n} ${o.side === 'over' ? 'over' : 'under'} · avg ${o.vs.avg.toFixed(1)} · since ${o.vs.first}` : 'never faced them'}</span></div>
       ${o.vs.n ? `<div class="hr-row" style="grid-template-columns:repeat(3,1fr)">${[['Career', o.vs.rate, o.vs.n], ['Last 3 seasons', o.vs.recent.rate, o.vs.recent.n], ['Last 5 vs them', o.vs.last5.filter((g) => (o.side === 'over' ? g.v > o.line : g.v < o.line)).length / (o.vs.last5.length || 1), o.vs.last5.length]].map(([l, v, n]) => `<div class="hr ${hrc(n ? v : null)}"><small>${l}</small><b>${n ? fmtPct(v, 0) : '—'}</b></div>`).join('')}</div>
       ${logBars(o.vs.log.map((g) => ({ ...g, opp: "'" + g.date.slice(2, 4) })), o.line, o.side, { n: 8 })}` : ''}</div>` : ''}
+    ${o.nba ? `<div class="scheme-box"><div class="vs-h"><b>⚡ Pace & matchup vs ${esc(o.nba.opp)}</b><span class="${(o.nba.delta >= 0) === (o.side === 'over') ? 'pos' : 'neg'}">${esc(o.nba.headline)}</span></div>
+      <p>${esc(o.nba.paceLine)}</p>${o.nba.dvpLine ? `<p>${esc(o.nba.dvpLine)}</p>` : ''}<small>${esc(o.nba.season)} season · ${o.nba.games} games · ESPN box scores</small></div>` : ''}
     ${o.scheme ? `<div class="scheme-box"><div class="vs-h"><b>🛡 Scheme vs ${esc(o.scheme.opp)}</b><span class="${(o.scheme.delta >= 0) === (o.side === 'over') ? 'pos' : 'neg'}">${esc(o.scheme.headline)}</span></div>
       <p>${esc(o.scheme.defLine)}</p><p>${esc(o.scheme.detail)}</p><small>Coverage splits: ${o.scheme.season} season · nflverse</small></div>` : ''}
     <div class="hr-row">${[['L5', o.hr.l5], ['L10', o.hr.l10], ['L20', o.hr.l20], ['Home', o.hr.home], ['Away', o.hr.away]].map(([l, v]) => `<div class="hr ${hrc(v)}"><small>${l}</small><b>${fmtPct(v, 0)}</b></div>`).join('')}</div>
@@ -962,6 +969,6 @@ function rain() {
 
 // ---------------- boot ----------------
 applyTheme(); rain(); render(); load();
-loadScheme().then((d) => { if (d && state.slate) { compute(); state.keepScroll = true; render(); } });
+Promise.all([loadScheme(), loadNba()]).then(() => { if (state.slate) { compute(); state.keepScroll = true; render(); } });
 forecast(47.606, -122.332, new Date(Math.ceil(Date.now() / 36e5) * 36e5).toISOString()).then((w) => { if (w) { state.homeWx = { t: w.temp, g: wxLabel(w.code, w.pop).g }; renderTop(); } });
 void TEAMS; void sparkline; void probToAm;

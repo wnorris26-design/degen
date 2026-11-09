@@ -1,0 +1,34 @@
+name: Refresh matchup data
+
+# NBA pace / defense-vs-position: every morning during the season.
+# NFL scheme data: Tuesdays (after Monday Night Football). Both can be run by hand from the Actions tab.
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: NBA pace & defense vs position
+        run: node scripts/build-nba-matchups.mjs
+      - name: NFL scheme matchups (Tuesdays or manual runs)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 13 * * *'
+        run: |
+          if [ "$(date -u +%u)" = "2" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then node scripts/build-nfl-matchups.mjs; else echo "Not Tuesday, skipping NFL"; fi
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- data/; then echo "No changes"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git commit -m "Refresh matchup data"
+          git push
