@@ -1,12 +1,12 @@
 import { SPORTS, BOOKS, bookName, TEAMS } from './teams.js';
-import { analyzeGame, analyzeProp, hitRates, grade, tier, fmtAm, fmtPct, imp, kelly, toDec, DFS_SLIPS, DFS_BREAKEVEN, probToAm } from './model.js';
+import { analyzeLongshot, analyzeGame, analyzeProp, hitRates, grade, tier, fmtAm, fmtPct, imp, kelly, toDec, DFS_SLIPS, DFS_BREAKEVEN, probToAm } from './model.js';
 import { gameFactors, factorScore, weatherTotalAdj } from './factors.js';
 import { demoSlate, rng } from './demo.js';
-import { liveSlate, quota, loadGameProps, PROP_COST } from './live.js';
+import { liveSlate, quota, loadGameProps, PROP_COST, loadGameLongshots, LONG_COST } from './live.js';
 import { forecast, wxLabel, compass } from './weather.js';
 import * as store from './store.js';
 import { lineChart, hbars, logBars, ring, hydrate, sparkline } from './charts.js';
-import { buildDfsSlips, buildBookParlays } from './parlay.js';
+import { buildDfsSlips, buildBookParlays, buildLongParlays } from './parlay.js';
 import { h2hLog, propLog, injuries, teamInjuries, supportsStat, pool, headshot } from './stats.js';
 
 const { settings } = store;
@@ -18,7 +18,7 @@ const sc = (s) => `var(--${s})`;
 const time = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const dateS = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
-const state = { focus: (() => { try { return localStorage.getItem('degen.focus'); } catch { return null; } })(), slate: null, loading: false, sport: localStorage.getItem('degen.sport') || 'all', opps: [], props: [], lines: { market: 'all', evOnly: true, q: '' }, propf: { sort: 'edge', venue: 'all', q: '', game: '' }, parlay: { book: 'all' }, slips: [], log: { status: 'all', q: '' }, homeWx: null };
+const state = { focus: (() => { try { return localStorage.getItem('degen.focus'); } catch { return null; } })(), slate: null, loading: false, sport: localStorage.getItem('degen.sport') || 'all', opps: [], props: [], lines: { market: 'all', evOnly: true, q: '' }, propf: { sort: 'edge', venue: 'all', q: '', game: '' }, longf: { stat: 'all', sort: 'ev' }, longs: [], parlay: { book: 'all' }, slips: [], log: { status: 'all', q: '' }, homeWx: null };
 
 // ---------------- data ----------------
 async function load(force = false) {
@@ -53,7 +53,7 @@ async function enrichReal() {
     injOk++;
     for (const g of gs) g.injuries = injuryFactors(g, all);
   }));
-  const props = Object.values(slate.props).flat().filter((p) => supportsStat(p.sport, p.stat));
+  const props = [...Object.values(slate.props).flat(), ...Object.values(slate.longs || {}).flat()].filter((p) => supportsStat(p.sport, p.stat) && !p.realLog);
   await pool(props, 6, async (p) => {
     const r = await propLog(p.sport, p.player, p.stat);
     if (!r || r.log.length < 3) return;
@@ -76,6 +76,49 @@ async function enrichReal() {
     state.enriching = false; compute(); state.keepScroll = true; render();
   }
   if (props.length && !logOk) toast('Couldn\'t reach ESPN for real game logs — showing simulated logs.');
+}
+
+function longTable(rows) {
+  if (!rows.length) return '';
+  const hitCell = (n, hits, label) => (n ? `<span class="${hits / n >= 0.5 ? 'pos' : ''}" data-tip="${esc(label)}">${hits}/${n}</span>` : '<span class="mut">—</span>');
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Player</th><th>Market</th><th class="r">Best price</th><th class="r" data-tip="Pinnacle = true no-vig price. est. = median book with a 12% long-shot margin removed">Fair</th><th class="r">Edge</th><th>Other books</th><th class="r" data-tip="Games with at least one (TD / goal / HR / double-double)">L10</th><th class="r">L20</th><th class="r" data-tip="Career games vs this opponent">vs opp</th><th></th></tr></thead><tbody>
+    ${rows.map((o) => { const a = o.a, l10 = (o.log || []).slice(-10), l20 = (o.log || []).slice(-20); const hit = (arr) => arr.filter((g) => g.v > 0.5).length;
+      return `<tr><td><b>${esc(o.player)}</b><div class="mut" style="font-size:11.5px">${sportTag(o.sport)} ${o.team ? `${esc(o.team)} ${o.home ? 'vs' : '@'} ${esc(o.opp)}` : esc(o.opp)}</div></td>
+      <td>${esc(o.stat)}${/^First/.test(o.stat) ? '<div class="mut" style="font-size:11px">logs = scored any</div>' : ''}</td>
+      <td class="r"><span class="odds-cell best">${fmtAm(a.best)}</span><div style="margin-top:4px">${bookBadge(a.bestBook)}</div></td>
+      <td class="r num">${fmtAm(a.fairAm)}<div class="mut" style="font-size:11px">${fmtPct(a.fair)} · ${a.method === 'estimate' ? 'est.' : a.method === 'pinnacle' ? 'Pinnacle' : 'no-vig'}</div></td>
+      <td class="r">${evPill(a.ev)}</td>
+      <td><div class="fchips">${Object.entries(a.prices).filter(([k]) => k !== a.bestBook).map(([k, v]) => `<span class="fchip" data-tip="${esc(bookName(k))}">${esc(BOOKS[k]?.short || k)} ${fmtAm(v)}</span>`).join('')}</div></td>
+      <td class="r num">${hitCell(l10.length, hit(l10), 'Last 10 games')}</td><td class="r num">${hitCell(l20.length, hit(l20), 'Last 20 games')}</td>
+      <td class="r num">${o.vs ? hitCell(o.vs.n, o.vs.hits, `Career vs ${o.opp} since ${o.vs.first || '—'}`) : '<span class="mut">—</span>'}</td>
+      <td class="r"><button class="btn sm" data-act="loglong" data-id="${esc(o.id)}">Log</button></td></tr>`; }).join('')}
+  </tbody></table></div>`;
+}
+
+function longPlan() {
+  const now = Date.now();
+  const games = allGames().filter((g) => new Date(g.time) - now < 24 * 36e5);
+  const todo = games.filter((g) => !g.longsLoadedAt);
+  return { games, todo, cost: todo.reduce((t, g) => t + LONG_COST[g.sport], 0) };
+}
+async function scanLongs(gameIds) {
+  const todo = gameIds ? allGamesAll().filter((g) => gameIds.includes(g.id) && !g.longsLoadedAt) : longPlan().todo;
+  const cost = todo.reduce((t, g) => t + LONG_COST[g.sport], 0);
+  if (!todo.length || state.scanning) return;
+  const left = quota.remaining != null ? +quota.remaining : null;
+  if (left != null && cost > left) return toast(`Needs ${cost} credits but only ${left} are left.`);
+  if (cost >= 15 && !confirm(`Load long shots for ${todo.length} games (${cost} credits${left != null ? `, ${left} left` : ''})?`)) return;
+  state.scanning = { done: 0, total: todo.length }; state.keepScroll = true; render();
+  let n = 0;
+  await pool(todo, 3, async (g) => {
+    const ls = await loadGameLongshots(g.sport, g, settings.oddsApiKey).catch(() => []);
+    const list = ((state.slate.longs ||= {})[g.sport] ||= []);
+    const have = new Set(list.map((x) => x.id));
+    list.push(...ls.filter((x) => !have.has(x.id))); n += ls.length; state.scanning.done++;
+  });
+  state.scanning = null; compute(); state.keepScroll = true; render();
+  toast(n ? `Loaded ${n} long shots · ${quota.remaining ?? '?'} credits left` : 'Books haven\'t posted these markets yet — try closer to game time.');
+  enrichReal();
 }
 
 function scanPlan() {
@@ -191,7 +234,13 @@ function compute() {
       props.push(o);
     }
   }
-  state.opps = opps; state.props = props;
+  const longs = [];
+  for (const [, ls] of Object.entries(state.slate.longs || {})) for (const l of ls) {
+    const a = analyzeLongshot(l);
+    if (!a) continue;
+    longs.push({ ...l, a, ev: a.ev, hr: hitRates(l.log || [], 0.5, 'over'), vs: l.h2h ? h2hSummary(l.h2h, 0.5, 'over') : null });
+  }
+  state.opps = opps; state.props = props; state.longs = longs;
 }
 
 const bySport = (arr) => (state.sport === 'all' ? arr : arr.filter((x) => x.sport === state.sport));
@@ -442,10 +491,36 @@ const views = {
       <div class="section-t"><h2>Player props</h2><p>${props.length ? `${props.length} props · best first · career vs ${esc(g.homeTeam.abbr)}/${esc(g.awayTeam.abbr)} included` : 'Only this game — nothing else'}</p><div class="right">${propBtn}</div></div>
       ${props.length ? `<div class="grid g-auto">${props.map(propCard).join('')}</div>` : `<div class="card empty"><div style="font-size:34px">🎯</div><h3>${live ? (g.propsLoadedAt ? 'Books haven\'t posted props for this game yet' : 'Props not loaded yet') : 'No featured players in this demo game'}</h3><p>${live ? (g.propsLoadedAt ? 'Try again closer to kickoff.' : `Loads only this game — ${PROP_COST[g.sport]} credits, cached free for 20 min.`) : 'Demo props only exist for a handful of star players. With your Odds API key you get every player.'}</p>${propBtn ? `<div style="margin-top:12px">${propBtn}</div>` : ''}</div>`}
 
+      ${(() => { const ls = state.longs.filter((o) => o.gameId === g.id).sort((a, b) => b.ev - a.ev); const btn = live && !g.longsLoadedAt ? `<button class="btn" data-act="gamelong" data-id="${esc(g.id)}" ${state.scanning ? 'disabled' : ''}>${state.scanning ? 'Loading…' : `Load long shots · ${LONG_COST[g.sport]} credits`}</button>` : '';
+        return `<div class="section-t"><h2>Long shots</h2><p>${{ nfl: 'Anytime & first TD scorers', nhl: 'Goal scorers', mlb: 'Home runs', nba: 'Double-doubles & first basket' }[g.sport]}</p><div class="right">${btn}</div></div>${ls.length ? longTable(ls) : `<div class="card empty-mini">${live ? (g.longsLoadedAt ? 'Books haven\'t posted these yet.' : 'Not loaded yet.') : 'No featured long shots in this demo game.'}</div>`}`; })()}
+
       ${slips.length ? `<div class="section-t"><h2>Same-game pick'em</h2><p>Best legs from both teams in this game</p></div><div class="picks">${slips.map((x, i) => slipCard(x, i)).join('')}</div>` : ''}
 
       <div class="section-t"><h2>Conditions & factors</h2></div>
       ${condCard(g, false)}`;
+  },
+
+  longshots() {
+    const f = state.longf, live = state.slate?.source === 'live';
+    let rows = bySport(state.longs);
+    const stats = [...new Set(rows.map((o) => o.stat))];
+    if (f.stat !== 'all') rows = rows.filter((o) => o.stat === f.stat);
+    const l10 = (o) => { const L = (o.log || []).slice(-10); return L.length ? L.filter((g) => g.v > 0.5).length / L.length : -1; };
+    rows.sort(f.sort === 'hit' ? (a, b) => l10(b) - l10(a) : f.sort === 'price' ? (a, b) => toDec(b.a.best) - toDec(a.a.best) : (a, b) => b.ev - a.ev);
+    const parlays = buildLongParlays(bySport(state.longs)).filter((x) => x.ev > 0).slice(0, 3);
+    state.slips = parlays;
+    const { games, todo, cost } = longPlan();
+    const scanner = live ? `<div class="card scan" style="margin-bottom:18px"><div class="scan-row"><div class="scan-ic">🎰</div>
+      <div class="grow"><h3 style="margin:0;font:600 18px var(--font-display)">Long-shot scanner</h3><div class="mut" style="font-size:12.5px">Anytime / first TD, anytime goal, home runs, double-doubles for every ${state.sport === 'all' ? '' : SPORTS[state.sport].label + ' '}game in the next 24h. 1 credit per market per game · <b>${quota.remaining ?? '—'}</b> credits left · cached 20 min. Tip: use <b>Game Focus</b> to load just one game.</div></div>
+      <button class="btn primary" data-act="scanlong" ${state.scanning || !todo.length ? 'disabled' : ''}>${state.scanning ? `Loading ${state.scanning.done}/${state.scanning.total}…` : todo.length ? `Load ${todo.length} game${todo.length > 1 ? 's' : ''} · ${cost} credits` : games.length ? 'All loaded ✓' : 'No games in 24h'}</button></div></div>` : '';
+    return `${demoBanner()}${scanner}
+      <div class="banner" style="background:var(--surface)">🎰 <span><b>Long shots live on line shopping.</b> Books disagree wildly on scorer markets (+300 here, +450 there), and their margins are fat. We compare every book to <b>Pinnacle's no-vig price</b> when they post one, otherwise to an estimate. Even a +EV +400 hits only ~1 in 5 — bet small, expect long dry spells.</span></div>
+      <div class="toolbar">
+        <div class="seg" data-lseg="stat">${[['all', 'All'], ...stats.map((x) => [x, x])].map(([k, l]) => `<button class="${f.stat === k ? 'on' : ''}" data-v="${esc(k)}">${esc(l)}</button>`).join('')}</div>
+        <div class="seg" data-lseg="sort">${[['ev', 'Edge'], ['hit', 'L10 hit rate'], ['price', 'Biggest payout']].map(([k, l]) => `<button class="${f.sort === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
+      </div>
+      ${rows.length ? longTable(rows) : `<div class="card empty"><div style="font-size:34px">🎰</div><h3>No long shots loaded</h3><p>${live ? 'Load them with the scanner above, or for one game in Game Focus.' : 'Pick another sport.'}</p></div>`}
+      ${parlays.length ? `<div class="section-t"><h2>Long-shot parlays</h2><p>Lottery tickets: every leg +EV at the same book, different games</p></div><div class="picks">${parlays.map((x, i) => slipCard(x, i)).join('')}</div>` : ''}`;
   },
 
   conditions() {
@@ -760,7 +835,7 @@ function renderTop() {
     <a class="mode-pill ${state.slate?.source === 'live' ? 'live' : ''}" href="#/settings"><i></i>${state.slate?.source === 'live' ? 'Live odds' : 'Demo mode'}</a>`;
 }
 
-const TITLES = { home: 'Basecamp', lines: 'Line Shop', props: 'Prop Lab', parlays: 'Parlay Builder', game: 'Game Focus', conditions: 'Conditions', logbook: 'Logbook', accounts: 'Accounts', guide: 'Field Guide', settings: 'Settings' };
+const TITLES = { home: 'Basecamp', lines: 'Line Shop', props: 'Prop Lab', parlays: 'Parlay Builder', game: 'Game Focus', longshots: 'Long Shots', conditions: 'Conditions', logbook: 'Logbook', accounts: 'Accounts', guide: 'Field Guide', settings: 'Settings' };
 function route() { const r = (location.hash.replace(/^#\/?/, '').split('?')[0] || 'home'); return views[r] ? r : 'home'; }
 
 function render() {
@@ -795,10 +870,12 @@ const isDark = () => settings.theme === 'dark' || (settings.theme === 'auto' && 
 
 // ---------------- events ----------------
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-act],[data-sport-chip],[data-seg] button,[data-set] button,[data-jump]');
+  const t = e.target.closest('[data-act],[data-sport-chip],[data-seg] button,[data-lseg] button,[data-set] button,[data-jump]');
   if (!t) return;
   if (t.dataset.sportChip) { state.sport = t.dataset.sportChip; localStorage.setItem('degen.sport', state.sport); state.keepScroll = true; return render(); }
   if (t.dataset.jump) { e.preventDefault(); return document.getElementById(t.dataset.jump)?.scrollIntoView({ behavior: 'smooth' }); }
+  const lseg = t.closest('[data-lseg]');
+  if (lseg) { state.longf[lseg.dataset.lseg] = t.dataset.v; state.keepScroll = true; return render(); }
   const seg = t.closest('[data-seg]');
   if (seg) { const k = seg.dataset.seg; if (k === 'market') state.lines.market = t.dataset.v; else if (k === 'status') state.log.status = t.dataset.v; else state.propf[k] = t.dataset.v; state.keepScroll = true; return render(); }
   const set = t.closest('[data-set]');
@@ -809,6 +886,9 @@ document.addEventListener('click', (e) => {
     case 'logprop': { const o = state.props.find((x) => x.id === id); if (o) betModal({ selection: `${o.player} ${o.side === 'over' ? 'o' : 'u'}${o.line} ${o.stat}`, sport: o.sport, book: o.useDfs ? o.a.dfs[0].book : o.a.sb.book, odds: o.useDfs ? -122 : o.a.sb.price, market: 'prop', fairP: o.p }); break; }
     case 'loadprops': loadProps(id); break;
     case 'scan': scanProps(); break;
+    case 'scanlong': scanLongs(); break;
+    case 'gamelong': scanLongs([id]); break;
+    case 'loglong': { const o = state.longs.find((x) => x.id === id); if (o) betModal({ selection: `${o.player} ${o.stat} (${o.opp})`, sport: o.sport, book: o.a.bestBook, odds: o.a.best, market: 'prop', fairP: o.a.fair }); break; }
     case 'logslip': { const x = state.slips[+t.dataset.i]; if (x) betModal({ selection: x.legs.map((l) => (l.kind === 'dfs' ? `${l.player} ${l.side === 'over' ? 'MORE' : 'LESS'} ${l.line} ${l.stat}` : l.label)).join(' + '), sport: x.legs[0].sport, book: x.book, odds: x.odds, market: 'parlay', fairP: x.pAll }); break; }
     case 'propgame': state.propf.game = id; state.keepScroll = true; render(); break;
     case 'newbet': betModal(); break;

@@ -212,11 +212,51 @@ function makeProps(sport, games, seed) {
   return props;
 }
 
+// Long shots for featured players: true probability → book "Yes" prices with a fat longshot margin (US books),
+// Pinnacle posts Yes AND No. Probabilities are rough, player-type based.
+function longProb(sport, player, markets) {
+  const m = Object.keys(markets);
+  if (sport === 'nfl') {
+    if (m.includes('Pass Yards')) return { 'Anytime TD': /Allen|Lamar/.test(player) ? 0.33 : 0.1 };
+    const rb = m.includes('Rush Yards');
+    return { 'Anytime TD': rb ? 0.5 : 0.4, 'First TD': rb ? 0.12 : 0.1 };
+  }
+  if (sport === 'nhl') { if (m.includes('Saves')) return {}; const sog = markets['Shots on Goal']?.[0] || 2.5; const p = 1 - Math.exp(-sog * 0.11); return { 'Anytime Goal': p, 'First Goal': p * 0.17 }; }
+  if (sport === 'nba') { const reb = markets.Rebounds?.[0] || 0, ast = markets.Assists?.[0] || 0; return reb >= 7 || ast >= 8 ? { 'Double-Double': Math.min(0.85, 0.2 + (Math.max(reb, ast) - 6) * 0.1) } : {}; }
+  if (sport === 'mlb') return m.includes('Strikeouts') ? {} : { 'Home Run': /Judge|Ohtani|Raleigh/.test(player) ? 0.22 : 0.13 };
+  return {};
+}
+function makeLongs(sport, games, seed) {
+  const r = rng(seed + 'longs' + sport);
+  const out = [];
+  for (const [player, abbr, markets] of PLAYERS[sport]) {
+    const g = games.find((x) => x.homeTeam.abbr === abbr || x.awayTeam.abbr === abbr);
+    if (!g) continue;
+    const home = g.homeTeam.abbr === abbr, opp = home ? g.awayTeam : g.homeTeam;
+    for (const [stat, p] of Object.entries(longProb(sport, player, markets))) {
+      const books = {};
+      for (const bk of ['draftkings', 'fanduel', 'betmgm', 'williamhill_us', 'espnbet', 'pinnacle']) {
+        if (r() < 0.12 && bk !== 'pinnacle') continue;
+        const lg = Math.log(p / (1 - p)) + r.n(0, bk === 'pinnacle' ? 0.03 : 0.1); // noise in log-odds space
+        const pb = 1 / (1 + Math.exp(-lg));
+        if (bk === 'pinnacle') { const [y, n] = bookPrice(r, p, 'pinnacle', 0.03); books[bk] = { yes: y, no: n }; }
+        else {
+          const m = 0.1 + r() * 0.08; // longshot margin on the Yes side; for heavy favorites apply it to the "No" share instead
+          const implied = pb < 0.5 ? pb * (1 + m) : 1 - (1 - pb) / (1 + m);
+          const a = toAm(1 / Math.min(0.95, implied)); books[bk] = { yes: Math.abs(a) < 100 ? -100 : round5(a) };
+        }
+      }
+      out.push({ id: `${g.id}|${player}|${stat}`, kind: 'long', sport, player, stat, team: abbr, teamObj: home ? g.homeTeam : g.awayTeam, oppTeam: opp, opp: opp.abbr, home, gameId: g.id, time: g.time, game: g, books, log: [], demo: true });
+    }
+  }
+  return out;
+}
+
 export async function demoSlate(now = Date.now()) {
   const seed = new Date(now).toISOString().slice(0, 10);
-  const games = {}, props = {};
-  await Promise.all(['nfl', 'nba', 'mlb', 'nhl'].map(async (s) => { games[s] = await makeGames(s, now, seed); props[s] = makeProps(s, games[s], seed); }));
-  return { games, props, source: 'demo', fetchedAt: now };
+  const games = {}, props = {}, longs = {};
+  await Promise.all(['nfl', 'nba', 'mlb', 'nhl'].map(async (s) => { games[s] = await makeGames(s, now, seed); props[s] = makeProps(s, games[s], seed); longs[s] = makeLongs(s, games[s], seed); }));
+  return { games, props, longs, source: 'demo', fetchedAt: now };
 }
 
 export { findTeam };

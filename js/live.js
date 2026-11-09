@@ -57,9 +57,9 @@ function mapEvent(sport, ev) {
 export async function liveSlate(settings) {
   const key = settings.oddsApiKey;
   const bookmakers = Object.keys(BOOKS).filter((k) => BOOKS[k].kind === 'book' || (k === 'pinnacle' && settings.includeSharp)).join(',');
-  const games = {}, props = {}, errors = [];
+  const games = {}, props = {}, longs = {}, errors = [];
   await Promise.all(Object.entries(SPORTS).map(async ([s, meta]) => {
-    games[s] = []; props[s] = [];
+    games[s] = []; props[s] = []; longs[s] = [];
     if (!settings.sports[s]) return;
     try {
       const data = await get(`/sports/${meta.key}/odds`, { bookmakers, markets: 'h2h,spreads,totals' }, key);
@@ -71,12 +71,58 @@ export async function liveSlate(settings) {
         games[s].forEach((g) => { for (const k of Object.keys(g.books)) if (!keep.has(k) && k !== 'pinnacle') delete g.books[k]; });
       }
       await Promise.all(games[s].map(async (g) => { if (g.homeTeam.roof !== 'd' && (s === 'nfl' || s === 'mlb') && g.homeTeam.lat) g.weather = await forecast(g.homeTeam.lat, g.homeTeam.lon, g.time); }));
+      longs[s] = [];
+      for (const g of games[s]) if (cachedProps(g.id + '|long')) longs[s].push(...(await loadGameLongshots(s, g, key)));
       // props: anything loaded in the last 20 min comes back free; optionally auto-load the next N games
       for (const g of games[s]) if (cachedProps(g.id)) props[s].push(...(await loadGameProps(s, g, key)));
       if (settings.fetchProps) props[s].push(...(await liveProps(s, games[s].filter((g) => !g.propsLoadedAt).slice(0, Math.max(0, (settings.propEvents || 3) - games[s].filter((g) => g.propsLoadedAt).length)), key)));
     } catch (e) { errors.push(`${meta.label}: ${e.message}`); }
   }));
-  return { games, props, source: 'live', fetchedAt: Date.now(), errors };
+  return { games, props, longs, source: 'live', fetchedAt: Date.now(), errors };
+}
+
+// Long-shot Yes/No markets. US books post only "Yes"; Pinnacle usually posts Yes AND No (true fair price).
+export const LONG_MARKETS = {
+  nfl: { player_anytime_td: 'Anytime TD', player_1st_td: 'First TD' },
+  nba: { player_double_double: 'Double-Double', player_first_basket: 'First Basket' },
+  nhl: { player_goal_scorer_anytime: 'Anytime Goal', player_goal_scorer_first: 'First Goal' },
+  mlb: { batter_home_runs: 'Home Run' },
+};
+export const LONG_COST = Object.fromEntries(Object.entries(LONG_MARKETS).map(([k, v]) => [k, Object.keys(v).length]));
+
+function buildLongshots(sport, g, ev) {
+  const by = {};
+  for (const b of ev.bookmakers || []) for (const m of b.markets) {
+    const stat = LONG_MARKETS[sport][m.key];
+    if (!stat) continue;
+    for (const oc of m.outcomes) {
+      if (!oc.description) continue;
+      if (oc.point != null && oc.point !== 0.5) continue; // home runs: only the 0.5 (any HR) line
+      const id = `${g.id}|${oc.description}|${m.key}`;
+      const l = (by[id] ||= { id, kind: 'long', sport, player: oc.description, stat, gameId: g.id, time: g.time, game: g, books: {}, log: [], live: true, team: '', opp: `${g.awayTeam.abbr} @ ${g.homeTeam.abbr}` });
+      const bk = (l.books[b.key] ||= {});
+      if (oc.name === 'Yes' || oc.name === 'Over') bk.yes = oc.price; else if (oc.name === 'No' || oc.name === 'Under') bk.no = oc.price;
+    }
+  }
+  return Object.values(by);
+}
+
+/** Long-shot markets for one game (cached 20 min like props). Costs LONG_COST[sport] credits. */
+export async function loadGameLongshots(sport, g, key, { force = false } = {}) {
+  const ck = g.id + '|long';
+  const c = propCache();
+  let entry = !force && c[ck];
+  if (!entry) {
+    const qs = new URLSearchParams({ apiKey: key, oddsFormat: 'american', bookmakers: Object.keys(BOOKS).filter((k) => BOOKS[k].kind !== 'dfs').join(','), markets: Object.keys(LONG_MARKETS[sport]).join(',') });
+    const r = await fetch(`${BASE}/sports/${SPORTS[sport].key}/events/${g.id}/odds?${qs}`);
+    quota.remaining = r.headers.get('x-requests-remaining') ?? quota.remaining;
+    if (!r.ok) throw new Error(`Odds API ${r.status}`);
+    entry = { t: Date.now(), ev: await r.json() };
+    const fresh = propCache(); fresh[ck] = entry;
+    try { localStorage.setItem(PCACHE, JSON.stringify(fresh)); } catch {}
+  }
+  g.longsLoadedAt = entry.t;
+  return buildLongshots(sport, g, entry.ev);
 }
 
 export const PROP_COST = Object.fromEntries(Object.entries(PROP_MARKETS).map(([k, v]) => [k, Object.keys(v).length])); // credits per game

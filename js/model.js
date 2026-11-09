@@ -194,3 +194,29 @@ export function grade(o) {
 export const tier = (g) => (g >= 70 ? { k: 'summit', label: 'Summit' } : g >= 50 ? { k: 'ridge', label: 'Ridge' } : g >= 30 ? { k: 'trail', label: 'Trail' } : { k: 'valley', label: 'Valley' });
 
 export { bookName };
+
+/**
+ * Long-shot (Yes/No) pricing. Best case: de-vig books that post both Yes and No (usually Pinnacle) — that's a
+ * true fair price. Otherwise US books only post "Yes", so we estimate fair as the median book's implied
+ * probability with a 12% longshot margin removed (typical for TD / goal scorer markets) and label it an estimate.
+ */
+export const LONGSHOT_MARGIN = 0.12;
+export function analyzeLongshot(l) {
+  const sb = Object.entries(l.books).filter(([k]) => BOOKS[k]?.kind !== 'dfs');
+  const yes = sb.filter(([, v]) => v.yes != null);
+  if (!yes.length) return null;
+  const two = sb.filter(([, v]) => v.yes != null && v.no != null).map(([book, v]) => ({ book, a: v.yes, b: v.no }));
+  let fair, method;
+  if (two.length) { fair = consensus(two).p; method = two.some((x) => x.book === 'pinnacle') ? 'pinnacle' : 'devig'; }
+  else {
+    const ims = yes.map(([, v]) => imp(v.yes)).sort((a, b) => a - b);
+    const med = ims.length % 2 ? ims[(ims.length - 1) / 2] : (ims[ims.length / 2 - 1] + ims[ims.length / 2]) / 2;
+    fair = med / (1 + LONGSHOT_MARGIN); method = 'estimate';
+  }
+  const bettable = yes.filter(([k]) => BOOKS[k]?.kind !== 'sharp');
+  if (!bettable.length) return null;
+  const [bestBook, bv] = bettable.reduce((m, x) => (toDec(x[1].yes) > toDec(m[1].yes) ? x : m));
+  const worst = bettable.reduce((m, x) => (toDec(x[1].yes) < toDec(m[1].yes) ? x : m))[1].yes;
+  return { fair, fairAm: probToAm(fair), method, bestBook, best: bv.yes, worst, ev: ev(fair, bv.yes), nBooks: bettable.length,
+    prices: Object.fromEntries(bettable.map(([k, v]) => [k, v.yes])) };
+}

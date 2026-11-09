@@ -90,3 +90,25 @@ export function buildBookParlays(opps, props, books = Object.keys(BOOKS).filter(
 }
 
 export { imp };
+
+/** "Lottery ticket" parlays: long-shot Yes legs (TD / goal / HR) that are each +EV at the same book, one per game. */
+export function buildLongParlays(longs, books = Object.keys(BOOKS).filter((k) => BOOKS[k].kind === 'book')) {
+  const out = [];
+  for (const book of books) {
+    const legs = [];
+    for (const o of longs) {
+      const price = o.a?.prices?.[book];
+      if (price == null) continue;
+      const e = evOf(o.a.fair, price);
+      if (e > 0) legs.push({ kind: 'long', book, label: `${o.player} ${o.stat}`, sub: o.team ? `${o.team} ${o.home ? 'vs' : '@'} ${o.opp}` : o.opp, player: o.player, price, p: o.a.fair, ev: e, gameId: o.gameId, sport: o.sport, hr: o.hr, vs: o.vs, id: o.id + '|' + book });
+    }
+    for (const n of [2, 3]) {
+      const chosen = pickLegs(legs, n, (l) => l.ev);
+      if (!chosen) continue;
+      const dec = prod(chosen.map((l) => toDec(l.price)));
+      const pAll = prod(chosen.map((l) => l.p));
+      out.push({ type: 'book', book, name: `${n}-leg long shot`, legs: chosen, dec, odds: toAm(dec), pAll, ev: pAll * dec - 1 });
+    }
+  }
+  return out.sort((a, b) => b.ev - a.ev);
+}

@@ -41,11 +41,11 @@ export const headshot = (sport, id) => (id ? `https://a.espncdn.com/i/headshots/
 const first = (v) => parseFloat(String(v).split('-')[0]);
 const n = (r, k) => { const v = r[k]; return v == null || v === '' || v === '--' ? 0 : first(v); };
 const STAT = {
-  nba: { Points: (r) => n(r, 'points'), Rebounds: (r) => n(r, 'totalRebounds'), Assists: (r) => n(r, 'assists'), Blocks: (r) => n(r, 'blocks'), Steals: (r) => n(r, 'steals'),
+  nba: { 'Double-Double': (r) => (['points', 'totalRebounds', 'assists', 'blocks', 'steals'].filter((k) => n(r, k) >= 10).length >= 2 ? 1 : 0), Points: (r) => n(r, 'points'), Rebounds: (r) => n(r, 'totalRebounds'), Assists: (r) => n(r, 'assists'), Blocks: (r) => n(r, 'blocks'), Steals: (r) => n(r, 'steals'),
     '3-Pointers': (r) => n(r, 'threePointFieldGoalsMade-threePointFieldGoalsAttempted'), 'Pts+Reb+Ast': (r) => n(r, 'points') + n(r, 'totalRebounds') + n(r, 'assists') },
-  nfl: { 'Pass Yards': (r) => n(r, 'passingYards'), 'Pass TDs': (r) => n(r, 'passingTouchdowns'), 'Rush Yards': (r) => n(r, 'rushingYards'), 'Rec Yards': (r) => n(r, 'receivingYards'), Receptions: (r) => n(r, 'receptions') },
-  nhl: { Points: (r) => n(r, 'points'), Goals: (r) => n(r, 'goals'), Assists: (r) => n(r, 'assists'), 'Shots on Goal': (r) => n(r, 'shotsTotal'), Saves: (r) => n(r, 'saves') },
-  mlb: { Hits: (r) => n(r, 'hits'), 'Home Runs': (r) => n(r, 'homeRuns'), 'Total Bases': (r) => n(r, 'hits') + n(r, 'doubles') + 2 * n(r, 'triples') + 3 * n(r, 'homeRuns'),
+  nfl: { 'Anytime TD': (r) => (n(r, 'rushingTouchdowns') + n(r, 'receivingTouchdowns') > 0 ? 1 : 0), 'First TD': (r) => (n(r, 'rushingTouchdowns') + n(r, 'receivingTouchdowns') > 0 ? 1 : 0), 'Pass Yards': (r) => n(r, 'passingYards'), 'Pass TDs': (r) => n(r, 'passingTouchdowns'), 'Rush Yards': (r) => n(r, 'rushingYards'), 'Rec Yards': (r) => n(r, 'receivingYards'), Receptions: (r) => n(r, 'receptions') },
+  nhl: { 'Anytime Goal': (r) => (n(r, 'goals') > 0 ? 1 : 0), 'First Goal': (r) => (n(r, 'goals') > 0 ? 1 : 0), Points: (r) => n(r, 'points'), Goals: (r) => n(r, 'goals'), Assists: (r) => n(r, 'assists'), 'Shots on Goal': (r) => n(r, 'shotsTotal'), Saves: (r) => n(r, 'saves') },
+  mlb: { 'Home Run': (r) => (n(r, 'homeRuns') > 0 ? 1 : 0), Hits: (r) => n(r, 'hits'), 'Home Runs': (r) => n(r, 'homeRuns'), 'Total Bases': (r) => n(r, 'hits') + n(r, 'doubles') + 2 * n(r, 'triples') + 3 * n(r, 'homeRuns'),
     'Hits+Runs+RBIs': (r) => n(r, 'hits') + n(r, 'runs') + n(r, 'RBIs'), Strikeouts: (r) => n(r, 'strikeouts') },
 };
 export const supportsStat = (sport, stat) => !!STAT[sport]?.[stat];
