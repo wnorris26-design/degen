@@ -11,7 +11,7 @@ export function dfsLegs(props) {
   const best = {};
   for (const o of props) for (const d of o.a?.dfs || []) {
     if (d.edge <= 0) continue;
-    const leg = { kind: 'dfs', app: d.book, player: o.player, stat: o.stat, side: d.side, line: d.line, p: d.p, gameId: o.gameId, sport: o.sport, game: o.game, hr: o.hr, vs: o.side === d.side && o.line === d.line ? o.vs : null, id: `${o.id}|${d.book}` };
+    const leg = { kind: 'dfs', app: d.book, player: o.player, team: o.team || null, stat: o.stat, side: d.side, line: d.line, p: d.p, gameId: o.gameId, sport: o.sport, game: o.game, hr: o.hr, vs: o.side === d.side && o.line === d.line ? o.vs : null, id: `${o.id}|${d.book}` };
     const k = d.book + '|' + o.player;
     if (!best[k] || leg.p > best[k].p) best[k] = leg;
   }
@@ -39,26 +39,37 @@ export function bookLegs(opps, props, book) {
   return legs.sort((a, b) => b.ev - a.ev);
 }
 
-// Greedy: take the strongest legs, one per game. Optionally require ≥2 different games (PrizePicks rule).
-function pickLegs(legs, n, score) {
+// Greedy: take the strongest legs. Default: one leg per game (independent legs).
+// sameGame: legs all come from one game — one per player, and (PrizePicks rule) both teams represented.
+function pickLegs(legs, n, score, { sameGame = false } = {}) {
   const out = [], games = new Set(), players = new Set();
   for (const l of [...legs].sort((a, b) => score(b) - score(a))) {
-    if (games.has(l.gameId) || (l.player && players.has(l.player))) continue;
+    if ((!sameGame && games.has(l.gameId)) || (l.player && players.has(l.player))) continue;
     out.push(l); games.add(l.gameId); if (l.player) players.add(l.player);
-    if (out.length === n) return out;
+    if (out.length === n) break;
   }
-  return null;
+  if (out.length < n) return null;
+  if (sameGame) {
+    const teams = new Set(out.map((l) => l.team).filter(Boolean));
+    if (out.every((l) => l.team) && teams.size < 2) {
+      // swap the weakest leg for the best leg from the other team, if there is one
+      const other = [...legs].sort((a, b) => score(b) - score(a)).find((l) => l.team && !teams.has(l.team) && !players.has(l.player));
+      if (!other) return null;
+      out[out.length - 1] = other;
+    }
+  }
+  return out;
 }
 
-export function buildDfsSlips(props) {
+export function buildDfsSlips(props, { sameGame = false } = {}) {
   const legs = dfsLegs(props);
   const slips = [];
   for (const s of DFS_SLIPS) {
     const pool = legs.filter((l) => l.app === (s.app === 'PrizePicks' ? 'prizepicks' : 'underdog'));
-    const chosen = pickLegs(pool, s.legs, (l) => l.p);
+    const chosen = pickLegs(pool, s.legs, (l) => l.p, { sameGame });
     if (!chosen) continue;
     const pAll = prod(chosen.map((l) => l.p));
-    slips.push({ type: 'dfs', app: s.app, book: chosen[0].app, name: `${s.app} ${s.type}`, legs: chosen, pay: s.pay, pAll, ev: s.pay * pAll - 1, breakEven: s.breakEven, odds: toAm(s.pay) });
+    slips.push({ type: 'dfs', app: s.app, book: chosen[0].app, name: `${s.app} ${s.type}`, legs: chosen, pay: s.pay, pAll, ev: s.pay * pAll - 1, breakEven: s.breakEven, odds: toAm(s.pay), sameGame });
   }
   return slips.sort((a, b) => b.ev - a.ev);
 }

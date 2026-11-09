@@ -18,7 +18,7 @@ const sc = (s) => `var(--${s})`;
 const time = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const dateS = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
-const state = { slate: null, loading: false, sport: localStorage.getItem('degen.sport') || 'all', opps: [], props: [], lines: { market: 'all', evOnly: true, q: '' }, propf: { sort: 'edge', venue: 'all', q: '', game: '' }, parlay: { book: 'all' }, slips: [], log: { status: 'all', q: '' }, homeWx: null };
+const state = { focus: (() => { try { return localStorage.getItem('degen.focus'); } catch { return null; } })(), slate: null, loading: false, sport: localStorage.getItem('degen.sport') || 'all', opps: [], props: [], lines: { market: 'all', evOnly: true, q: '' }, propf: { sort: 'edge', venue: 'all', q: '', game: '' }, parlay: { book: 'all' }, slips: [], log: { status: 'all', q: '' }, homeWx: null };
 
 // ---------------- data ----------------
 async function load(force = false) {
@@ -196,6 +196,7 @@ function compute() {
 
 const bySport = (arr) => (state.sport === 'all' ? arr : arr.filter((x) => x.sport === state.sport));
 const allGames = () => bySport(Object.values(state.slate?.games || {}).flat());
+const allGamesAll = () => Object.values(state.slate?.games || {}).flat();
 
 // ---------------- explanation engine ----------------
 function whyLine(o) {
@@ -244,7 +245,7 @@ function pickCard(o) {
     <div class="metrics"><div class="metric"><small>Edge</small><b class="${o.ev > 0 ? 'pos' : 'neg'}">${pctS(o.ev)}</b></div><div class="metric"><small>Fair odds</small><b>${fmtAm(o.fairAm)}</b></div><div class="metric"><small>Kelly stake</small><b>${money(settings.bankroll * kelly(o.fairP, o.bestPrice, settings.kellyFrac))}</b></div></div>
     ${chips ? `<div class="fchips">${chips}</div>` : ''}
     <details class="why"><summary>Why this bet</summary>${whyLine(o)}</details>
-    <div class="pick-foot"><a class="btn sm ghost" href="#/conditions?g=${encodeURIComponent(o.gameId)}">Conditions</a><button class="btn sm primary" data-act="log" data-id="${esc(o.id)}">+ Log bet</button></div>
+    <div class="pick-foot"><a class="btn sm ghost" href="#/game?g=${encodeURIComponent(o.gameId)}">Focus game</a><button class="btn sm primary" data-act="log" data-id="${esc(o.id)}">+ Log bet</button></div>
   </article>`;
 }
 
@@ -339,7 +340,7 @@ const views = {
     const games = [...new Map(rows.map((o) => [o.gameId, o.game])).values()].sort((a, b) => new Date(a.time) - new Date(b.time));
     const body = games.map((g) => {
       const rs = rows.filter((o) => o.gameId === g.id).sort((a, b) => b.ev - a.ev);
-      return `<tr class="game-row"><td colspan="${7 + books.length}">${sportTag(g.sport)} &nbsp; ${esc(g.away)} @ ${esc(g.home)} <span class="mut">· ${time(g.time)}</span> ${g.weather && g.homeTeam.roof !== 'd' ? `<span class="mut">· ${wxLabel(g.weather.code).g} ${g.weather.temp}° ${g.weather.wind}mph</span>` : ''}</td></tr>` +
+      return `<tr class="game-row"><td colspan="${7 + books.length}">${sportTag(g.sport)} &nbsp; ${esc(g.away)} @ ${esc(g.home)} <span class="mut">· ${time(g.time)}</span> <a class="btn sm ghost" href="#/game?g=${encodeURIComponent(g.id)}">Focus →</a> ${g.weather && g.homeTeam.roof !== 'd' ? `<span class="mut">· ${wxLabel(g.weather.code).g} ${g.weather.temp}° ${g.weather.wind}mph</span>` : ''}</td></tr>` +
         rs.map((o) => `<tr>
           <td><b>${esc(o.selection)}</b><div class="mut" style="font-size:11.5px">${o.marketLabel}</div></td>
           <td class="r num">${fmtAm(o.fairAm)}<div class="mut" style="font-size:11px">${fmtPct(o.fairP)}</div></td>
@@ -395,16 +396,6 @@ const views = {
     const bp = buildBookParlays(opps, props, bf === 'all' ? undefined : [bf]).filter((x) => x.ev > 0).slice(0, 6);
     state.slips = [...dfs, ...bp];
     const books = Object.keys(BOOKS).filter((k) => BOOKS[k].kind === 'book');
-    const slipCard = (x, i) => {
-      const stake = Math.min(+settings.unit || 25, settings.bankroll * kelly(x.pAll, x.odds, settings.kellyFrac)); // long shots: never more than 1 unit
-      return `<article class="card pick slip" style="--sc:${BOOKS[x.book]?.hue || 'var(--accent)'}">
-        <div class="pick-top">${bookBadge(x.book)}<span>· ${esc(x.name)}</span>${x.ev > 0 ? `<span class="tier summit" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>` : `<span class="tier" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>`}</div>
-        <ol class="legs">${x.legs.map((l) => `<li><span class="dot" style="background:${sc(l.sport)}"></span><div><b>${l.kind === 'dfs' ? `${esc(l.player)} <span class="more-less">${l.side === 'over' ? 'MORE' : 'LESS'}</span> ${l.line} ${esc(l.stat)}` : esc(l.label)}</b><small>${l.kind === 'dfs' ? `${esc(l.game.awayTeam.abbr)} @ ${esc(l.game.homeTeam.abbr)}` : esc(l.sub)}${l.hr?.l10 != null ? ` · L10 ${fmtPct(l.hr.l10, 0)}` : ''}${l.vs?.n ? ` · vs opp ${l.vs.hits}/${l.vs.n}` : ''}</small></div><em>${l.kind === 'dfs' ? fmtPct(l.p, 0) : `${fmtAm(l.price)} · ${fmtPct(l.p, 0)}`}</em></li>`).join('')}</ol>
-        <div class="metrics"><div class="metric"><small>Hits</small><b>${fmtPct(x.pAll, 1)}</b></div><div class="metric"><small>Pays</small><b>${x.type === 'dfs' ? x.pay + '×' : fmtAm(x.odds)}</b></div><div class="metric"><small>Stake</small><b data-tip="Quarter-Kelly, capped at your unit size for parlays">${money(Math.max(0, stake))}</b></div></div>
-        <div class="why">${x.type === 'dfs' ? `Each pick needs ${fmtPct(x.breakEven)} to break even; these average ${fmtPct(x.legs.reduce((t, l) => t + l.p, 0) / x.legs.length)}.` : `Every leg is +EV at ${esc(bookName(x.book))}'s own price. Fair odds ${fmtAm(probToAm(x.pAll))} vs ${fmtAm(x.odds)} offered.`} Loses ${fmtPct(1 - x.pAll, 0)} of the time — size it small.</div>
-        <div class="pick-foot"><span class="mut" style="font-size:12px">One leg per game (no correlation)</span><button class="btn sm primary" data-act="logslip" data-i="${i}">+ Log ${x.type === 'dfs' ? 'slip' : 'parlay'}</button></div>
-      </article>`;
-    };
     const hasProps = props.length > 0;
     return `${demoBanner()}${scanCard()}
       <div class="banner" style="background:var(--surface)">🎯 <span><b>How these are built:</b> the strongest legs on the board, one per game so they don't move together, combined into the slip sizes each app pays on. Parlays multiply your edge <i>and</i> your variance — a +30% EV 5-pick still loses most of the time.</span></div>
@@ -412,6 +403,49 @@ const views = {
       <div class="picks">${dfs.length ? dfs.map((x, i) => slipCard(x, i)).join('') : `<div class="card empty"><div style="font-size:34px">🎟</div><h3>${hasProps ? 'Not enough +edge pick\'em legs' : 'No props scanned yet'}</h3><p>${hasProps ? 'Need at least 2 qualifying picks from different games. Try All sports or rescan closer to game time.' : 'Run a scan above to pull PrizePicks & Underdog lines.'}</p></div>`}</div>
       <div class="section-t"><h2>Sportsbook parlays</h2><p>Every leg +EV at the same book</p><div class="right"><select class="input" data-pb="book" style="width:auto">${[['all', 'All books'], ...books.map((k) => [k, BOOKS[k].name])].map(([k, l]) => `<option value="${k}" ${bf === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="picks">${bp.length ? bp.map((x, i) => slipCard(x, dfs.length + i)).join('') : `<div class="card empty"><div style="font-size:34px">🧾</div><h3>No +EV parlays at ${bf === 'all' ? 'any book' : esc(bookName(bf))} right now</h3><p>A parlay needs 2+ legs from different games that are each priced better than fair at the same book.</p></div>`}</div>`;
+  },
+
+  game() {
+    const qs = new URLSearchParams(location.hash.split('?')[1] || '');
+    const id = qs.has('g') ? qs.get('g') : state.focus; // '#/game?g=' (empty) = show the picker
+    const g = id && allGamesAll().find((x) => x.id === id);
+    const live = state.slate?.source === 'live';
+    if (!g) {
+      // picker: upcoming games, soonest first, grouped by day
+      const games = allGames().sort((a, b) => new Date(a.time) - new Date(b.time));
+      const day = (iso) => new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      const groups = [...new Set(games.map((x) => day(x.time)))];
+      return `${demoBanner()}<div class="section-t" style="margin-top:0"><h2>Pick a game to focus on</h2><p>Lines, props, career matchups, conditions and same-game pick'em — for just that game.</p></div>
+        ${groups.map((d) => `<h3 class="day-h">${d}</h3><div class="game-pills">${games.filter((x) => day(x.time) === d).map((x) => `<a class="gpill" href="#/game?g=${encodeURIComponent(x.id)}"><span class="dot" style="background:${sc(x.sport)}"></span><b>${esc(x.awayTeam.abbr)} @ ${esc(x.homeTeam.abbr)}</b><small>${esc(x.away)} at ${esc(x.home)}</small><em>${new Date(x.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${x.propsLoadedAt ? ' · props ✓' : ''}</em></a>`).join('')}</div>`).join('') || '<div class="card empty"><h3>No upcoming games</h3><p>Turn on more sports in Settings or hit refresh.</p></div>'}`;
+    }
+    state.focus = g.id; try { localStorage.setItem('degen.focus', g.id); } catch {}
+    const opps = state.opps.filter((o) => o.gameId === g.id).sort((a, b) => b.ev - a.ev);
+    const props = state.props.filter((o) => o.gameId === g.id).sort((a, b) => b.grade - a.grade || b.ev - a.ev);
+    const slips = buildDfsSlips(props, { sameGame: true }).filter((x) => x.legs.length <= 4 && x.ev > 0).slice(0, 3);
+    state.slips = slips;
+    const books = Object.keys(BOOKS).filter((k) => BOOKS[k].kind !== 'dfs' && opps.some((o) => o.prices[k] != null));
+    const started = new Date(g.time) <= Date.now();
+    const wx = g.weather;
+    const propBtn = live && !g.propsLoadedAt ? `<button class="btn primary" data-act="loadprops" data-id="${esc(g.id)}" ${state.loadingProps ? 'disabled' : ''}>${state.loadingProps === g.id ? 'Loading props…' : `Load props for this game · ${PROP_COST[g.sport]} credits`}</button>` : '';
+    return `${demoBanner()}
+      <div class="card focus-h" style="--sc:${sc(g.sport)}">
+        <div class="focus-top"><a class="btn sm ghost" href="#/game?g=">← All games</a>${sportTag(g.sport)}<span class="mut">${time(g.time)}${started ? ' · <b class="neg">in progress</b>' : ''}</span></div>
+        <div class="focus-match"><div><small>Away</small><b>${esc(g.away)}</b></div><span class="at">@</span><div style="text-align:right"><small>Home</small><b>${esc(g.home)}</b></div></div>
+        <div class="fchips" style="justify-content:center">${g.homeTeam.roof === 'd' ? '<span class="fchip">🏟 Indoors</span>' : wx ? `<span class="fchip">${wxLabel(wx.code, wx.pop).g} ${wx.temp}°F</span><span class="fchip">🌬 ${wx.wind} mph ${compass(wx.dir)}</span><span class="fchip">🌧 ${wx.pop}%</span>` : ''}${g.homeTeam.roof === 'r' ? '<span class="fchip">Retractable roof</span>' : ''}</div>
+      </div>
+
+      <div class="section-t"><h2>Game lines</h2><p>Every book, best price highlighted</p></div>
+      ${opps.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Selection</th><th class="r">Fair</th>${books.map((k) => `<th class="c">${esc(BOOKS[k].short)}</th>`).join('')}<th class="r">Edge</th><th></th></tr></thead><tbody>
+        ${opps.map((o) => `<tr><td><b>${esc(o.selection)}</b><div class="mut" style="font-size:11.5px">${o.marketLabel}</div></td><td class="r num">${fmtAm(o.fairAm)}</td>${books.map((k) => { const p = o.prices[k]; return `<td class="c">${p == null ? '<span class="mut">—</span>' : `<span class="odds-cell ${k === o.bestBook ? 'best' : ''}">${fmtAm(p)}</span>`}</td>`; }).join('')}<td class="r">${evPill(o.ev)}</td><td class="r"><button class="btn sm" data-act="log" data-id="${esc(o.id)}">Log</button></td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="card empty-mini">No game lines for this game.</div>'}
+
+      <div class="section-t"><h2>Player props</h2><p>${props.length ? `${props.length} props · best first · career vs ${esc(g.homeTeam.abbr)}/${esc(g.awayTeam.abbr)} included` : 'Only this game — nothing else'}</p><div class="right">${propBtn}</div></div>
+      ${props.length ? `<div class="grid g-auto">${props.map(propCard).join('')}</div>` : `<div class="card empty"><div style="font-size:34px">🎯</div><h3>${live ? (g.propsLoadedAt ? 'Books haven\'t posted props for this game yet' : 'Props not loaded yet') : 'No featured players in this demo game'}</h3><p>${live ? (g.propsLoadedAt ? 'Try again closer to kickoff.' : `Loads only this game — ${PROP_COST[g.sport]} credits, cached free for 20 min.`) : 'Demo props only exist for a handful of star players. With your Odds API key you get every player.'}</p>${propBtn ? `<div style="margin-top:12px">${propBtn}</div>` : ''}</div>`}
+
+      ${slips.length ? `<div class="section-t"><h2>Same-game pick'em</h2><p>Best legs from both teams in this game</p></div><div class="picks">${slips.map((x, i) => slipCard(x, i)).join('')}</div>` : ''}
+
+      <div class="section-t"><h2>Conditions & factors</h2></div>
+      ${condCard(g, false)}`;
   },
 
   conditions() {
@@ -543,6 +577,17 @@ const views = {
   },
 };
 
+function slipCard(x, i) {
+  const stake = Math.min(+settings.unit || 25, settings.bankroll * kelly(x.pAll, x.odds, settings.kellyFrac)); // long shots: never more than 1 unit
+  return `<article class="card pick slip" style="--sc:${BOOKS[x.book]?.hue || 'var(--accent)'}">
+    <div class="pick-top">${bookBadge(x.book)}<span>· ${esc(x.name)}</span>${x.ev > 0 ? `<span class="tier summit" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>` : `<span class="tier" style="margin-left:auto">${pctS(x.ev, 0)} EV</span>`}</div>
+    <ol class="legs">${x.legs.map((l) => `<li><span class="dot" style="background:${sc(l.sport)}"></span><div><b>${l.kind === 'dfs' ? `${esc(l.player)} <span class="more-less">${l.side === 'over' ? 'MORE' : 'LESS'}</span> ${l.line} ${esc(l.stat)}` : esc(l.label)}</b><small>${l.kind === 'dfs' ? `${esc(l.game.awayTeam.abbr)} @ ${esc(l.game.homeTeam.abbr)}` : esc(l.sub)}${l.hr?.l10 != null ? ` · L10 ${fmtPct(l.hr.l10, 0)}` : ''}${l.vs?.n ? ` · vs opp ${l.vs.hits}/${l.vs.n}` : ''}</small></div><em>${l.kind === 'dfs' ? fmtPct(l.p, 0) : `${fmtAm(l.price)} · ${fmtPct(l.p, 0)}`}</em></li>`).join('')}</ol>
+    <div class="metrics"><div class="metric"><small>Hits</small><b>${fmtPct(x.pAll, 1)}</b></div><div class="metric"><small>Pays</small><b>${x.type === 'dfs' ? x.pay + '×' : fmtAm(x.odds)}</b></div><div class="metric"><small>Stake</small><b data-tip="Quarter-Kelly, capped at your unit size for parlays">${money(Math.max(0, stake))}</b></div></div>
+    <div class="why">${x.type === 'dfs' ? `Each pick needs ${fmtPct(x.breakEven)} to break even; these average ${fmtPct(x.legs.reduce((t, l) => t + l.p, 0) / x.legs.length)}.` : `Every leg is +EV at ${esc(bookName(x.book))}'s own price. Fair odds ${fmtAm(probToAm(x.pAll))} vs ${fmtAm(x.odds)} offered.`} Loses ${fmtPct(1 - x.pAll, 0)} of the time — size it small.</div>
+    <div class="pick-foot"><span class="mut" style="font-size:12px">${x.sameGame ? 'Same game — legs are correlated, hit % is approximate' : 'One leg per game (no correlation)'}</span><button class="btn sm primary" data-act="logslip" data-i="${i}">+ Log ${x.type === 'dfs' ? 'slip' : 'parlay'}</button></div>
+  </article>`;
+}
+
 function kpi(label, value, sub, cls = '') { return `<div class="card kpi"><small>${label}</small><b class="${cls}">${value}</b><span>${sub}</span></div>`; }
 
 function bankrollChart(h, list = store.bets) {
@@ -589,7 +634,7 @@ function condCard(g, focus) {
   const leanName = (k) => (k === 'home' ? g.homeTeam.abbr : k === 'away' ? g.awayTeam.abbr : k === 'over' ? 'Over' : 'Under');
   const best = state.opps.filter((o) => o.gameId === g.id).sort((a, b) => b.ev - a.ev)[0];
   return `<div class="card" id="g-${esc(g.id)}" ${focus ? 'style="border-color:var(--accent)"' : ''}>
-    <div class="card-h"><div class="matchup">${sportTag(g.sport)}<span class="team">${esc(g.away)}</span><span class="at">at</span><span class="team">${esc(g.home)}</span></div><div class="right mut">${time(g.time)}</div></div>
+    <div class="card-h"><div class="matchup">${sportTag(g.sport)}<span class="team">${esc(g.away)}</span><span class="at">at</span><span class="team">${esc(g.home)}</span></div><div class="right mut">${time(g.time)} <a class="btn sm ghost" href="#/game?g=${encodeURIComponent(g.id)}">Focus →</a></div></div>
     <div class="cond">
       <div class="wx-panel">
         ${g.homeTeam.roof === 'd' ? `<div class="big"><span>🏟</span>Indoors</div><div class="mut" style="font-size:12.5px">Climate-controlled. Weather doesn't apply.</div>` : wx ? `
@@ -715,7 +760,7 @@ function renderTop() {
     <a class="mode-pill ${state.slate?.source === 'live' ? 'live' : ''}" href="#/settings"><i></i>${state.slate?.source === 'live' ? 'Live odds' : 'Demo mode'}</a>`;
 }
 
-const TITLES = { home: 'Basecamp', lines: 'Line Shop', props: 'Prop Lab', parlays: 'Parlay Builder', conditions: 'Conditions', logbook: 'Logbook', accounts: 'Accounts', guide: 'Field Guide', settings: 'Settings' };
+const TITLES = { home: 'Basecamp', lines: 'Line Shop', props: 'Prop Lab', parlays: 'Parlay Builder', game: 'Game Focus', conditions: 'Conditions', logbook: 'Logbook', accounts: 'Accounts', guide: 'Field Guide', settings: 'Settings' };
 function route() { const r = (location.hash.replace(/^#\/?/, '').split('?')[0] || 'home'); return views[r] ? r : 'home'; }
 
 function render() {

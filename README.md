@@ -42,6 +42,7 @@ Your API key, bets and accounts live in each browser's local storage, never in t
 | **Basecamp** | Top-graded bets ("Summit picks"), bankroll, ROI, hit rate vs break-even, CLV, weather watch |
 | **Line Shop** | Every book side by side with the best price highlighted, plus the no-vig fair line, edge, hold, factor score and grade |
 | **Prop Lab** | Player props with real L5/L10/L20/home/away hit rates and **career head-to-head vs tonight's opponent** (ESPN), game-log charts vs the line, and PrizePicks/Underdog break-even math |
+| **Game Focus** | Pick one game (e.g. Monday Night Football) and see only that game: every book's lines, its player props (loaded for that game alone, e.g. 4 credits for NFL), career matchups, conditions, and same-game pick'em slips with both teams represented. Remembers your last game |
 | **Parlay Builder** | One **Scan** checks every game in the next 24 hours, ranks the best legs, and builds PrizePicks/Underdog slips (2–6 picks) and same-book sportsbook parlays (2–4 legs), with one leg per game so legs don't move together. Shows hit chance, payout, EV and a stake capped at one unit |
 | **Conditions** | Per-game weather (live Open-Meteo forecast at the stadium), wind direction, roof type, altitude, travel miles and time zones, rest/back-to-backs, bets vs money splits, reverse line moves, injuries, goalies, pitchers and pace |
 | **Logbook** | Log, settle and edit bets. Tracks profit, ROI, hit rate, closing line value, and ROI by book and bet type. CSV import/export |

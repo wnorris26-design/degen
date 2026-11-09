@@ -295,6 +295,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .vs-h span { color: var(--ink-2); font-family: var(--font-num); font-size: 12px; }
 .vs-box .logbars { height: 96px; }
 
+.day-h { font: 600 15px var(--font-display); color: var(--ink-2); margin: 18px 0 10px; }
+a.gpill { text-decoration: none; color: inherit; }
+.focus-h { overflow: hidden; display: grid; gap: 14px; }
+.focus-h::after { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--sc); }
+.focus-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.focus-match { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; }
+.focus-match small { display: block; color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; }
+.focus-match b { font: 700 clamp(20px, 3vw, 32px)/1.1 var(--font-display); letter-spacing: -.02em; }
+.focus-match .at { font: 600 22px var(--font-display); color: var(--muted); }
+
 /* ---------- conditions ---------- */
 .cond { display: grid; grid-template-columns: 220px 1fr; gap: 18px; }
 .wx-panel { align-self: start; border-radius: 14px; padding: 16px; background: linear-gradient(170deg, color-mix(in oklab, var(--glacier) 18%, var(--surface-2)), var(--surface-2)); display: flex; flex-direction: column; gap: 10px; }
