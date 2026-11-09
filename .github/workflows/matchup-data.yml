@@ -1,6 +1,6 @@
 name: Refresh matchup data
 
-# NBA pace / defense-vs-position: every morning during the season.
+# NBA pace / NHL shot volume & defense-vs-position: every morning during the season.
 # NFL scheme data: Tuesdays (after Monday Night Football). Both can be run by hand from the Actions tab.
 on:
   schedule:
@@ -20,6 +20,8 @@ jobs:
           node-version: 22
       - name: NBA pace & defense vs position
         run: node scripts/build-nba-matchups.mjs
+      - name: NHL shot volume & defense vs position
+        run: node scripts/build-nhl-matchups.mjs
       - name: NFL scheme matchups (Tuesdays or manual runs)
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 13 * * *'
         run: |

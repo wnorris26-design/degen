@@ -96,6 +96,21 @@ How it's calculated:
 - **Defense vs position** is pace-adjusted so pace isn't counted twice, and shrunk toward league average early in the season.
 - **NBA game factors** use the real projected pace, with an over/under lean when it's 2+ possessions from average.
 
+## NHL shot volume & scoring environment (free, ESPN box scores)
+
+`data/nhl-matchups.json` is rebuilt every morning by `scripts/build-nhl-matchups.mjs` from every completed game's ESPN box score:
+
+- **Teams:** shots on goal for and against, goals for and against (shootouts excluded), power play % and penalty kill %.
+- **Defense vs position:** shots, goals and points allowed to forwards vs defensemen.
+- **Goalies:** save %.
+
+Every NHL prop card gets a **🥅 Volume & matchup** box:
+- **Shots on goal:** the player's team shot rate vs the opponent's shots allowed, tilted by what that defense allows to forwards or defensemen.
+- **Points / goals / assists:** expected team goals (their scoring × the opponent's goals allowed), plus a note on weak penalty kills.
+- **Saves:** how many shots the opponent fires vs what his team usually allows (e.g. facing Carolina, the league's top shooting team, adds about +3.8 saves).
+
+NHL games also get a **Scoring environment** factor (expected goals per side), with an over/under lean when the total is 0.4+ goals from average. Team numbers are shrunk toward league average early in the season.
+
 ## Prop credits
 
 Player props cost **1 credit per stat per game**: an NBA game (points, rebounds, assists, threes, PRA) is 5, NFL 4, NHL 3. The scanner shows the cost before it runs and asks before anything over 40 credits. Scanned props are cached for 20 minutes, so reloading or switching pages is free. To scan less, pick one sport with the chips at the top. The free plan (500/month) covers about 3–4 full slates; the $30/month plan (20,000) is effectively unlimited.
